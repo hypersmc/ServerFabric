@@ -1,0 +1,4 @@
+name: ServerFabric-Proxy
+main: dev.jumpwatch.serverfabric.proxy.DynProxyPlugin
+version: 0.1.0
+author: JumpWatch

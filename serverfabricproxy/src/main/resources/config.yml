@@ -1,0 +1,12 @@
+token: "CHANGE_ME_TOKEN"
+
+pollIntervalSeconds: 5
+
+
+hosts:
+  - id: "local"
+    baseUrl: "http://127.0.0.1:8085"
+    connectHost: "127.0.0.1"   # what Bungee uses to connect to servers on THIS host
+  - id: "node2"
+    baseUrl: "http://10.0.0.22:8085"
+    connectHost: "10.0.0.22"
