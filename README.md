@@ -33,7 +33,7 @@ The goal is to keep the system lightweight, understandable, and fun to extend, w
 ## Architecture Overview
 
 **ServerFabric-Client (Paper GUI)**  
-→ sends plugin messages on `ServerFabric:main`  
+→ sends plugin messages on `serverfabric:main`  
 → **ServerFabric-Proxy** receives and forwards to the correct host  
 → **ServerFabric-Host** does the actual filesystem/process work
 
@@ -77,7 +77,7 @@ Run ServerFabric-Host:
 ```
 java -jar ServerFabricHost.jar
 ```
-Use `--config path/to/config.propterties` to use another path
+Use `--config path/to/config.properties` to use another path
 
 ServerFabric-Host stores data under:
 
@@ -137,9 +137,9 @@ ServerFabric-Host persists `autoStart` intent:
 ---
 
 ## Security Notes
-* ServerFabric-Host exposes an HTTP API secured by a barer token.
+* ServerFabric-Host exposes an HTTP API secured by a bearer token.
 * For local networks, bind ServerFabric-Host to `127.0.0.1` or internal LAN IPs
-* Do **not** expose ServerFabric-Host ports to publicly without additional protections (firewalls / reverse proxy / TLS).
+* Do **not** expose ServerFabric-Host ports to the public internet without additional protections (firewalls / reverse proxy / TLS).
 ---
 
 ## Development / Building

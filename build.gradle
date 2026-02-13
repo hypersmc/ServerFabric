@@ -1,5 +1,5 @@
 allprojects {
-    group = "dev.jumpwatch.dynservers"
+    group = "dev.jumpwatch.serverfabric"
     version = "0.1.0"
     repositories {
         mavenCentral()
