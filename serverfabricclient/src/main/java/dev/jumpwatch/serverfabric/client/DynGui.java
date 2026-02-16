@@ -123,34 +123,44 @@ public final class DynGui implements Listener {
 
         e.setCancelled(true);
 
-        int slot = e.getRawSlot();
-        if (slot < 0 || slot >= 54) return;
+        int rawSlot = e.getRawSlot();
+        if (rawSlot < 0 || rawSlot >= 54) return;
 
-        // nav
-        if (slot == 49) {
-            plugin.messenger().requestStatus(p);
-            p.sendMessage("§7Refreshing...");
+        Mode m = mode.getOrDefault(p.getUniqueId(), Mode.INSTANCES);
+
+        // Refresh button should refresh the current view
+        if (rawSlot == 49) {
+            if (m == Mode.TEMPLATES) {
+                plugin.messenger().requestTemplates(p);
+                p.sendMessage("§7Refreshing templates...");
+            } else {
+                plugin.messenger().requestStatus(p);
+                p.sendMessage("§7Refreshing instances...");
+            }
             return;
         }
-        if (slot == 45) {
+
+        // Paging
+        if (rawSlot == 45) {
             page.put(p.getUniqueId(), Math.max(0, page.getOrDefault(p.getUniqueId(), 0) - 1));
             render(p);
             return;
         }
-        if (slot == 53) {
+        if (rawSlot == 53) {
             page.put(p.getUniqueId(), page.getOrDefault(p.getUniqueId(), 0) + 1);
             render(p);
             return;
         }
 
-        if (slot == 47) {
+        // Tabs
+        if (rawSlot == 47) {
             mode.put(p.getUniqueId(), Mode.TEMPLATES);
             plugin.messenger().requestTemplates(p);
             p.sendMessage("§7Loading templates...");
             render(p);
             return;
         }
-        if (slot == 51) {
+        if (rawSlot == 51) {
             mode.put(p.getUniqueId(), Mode.INSTANCES);
             plugin.messenger().requestStatus(p);
             p.sendMessage("§7Loading instances...");
@@ -158,20 +168,28 @@ public final class DynGui implements Listener {
             return;
         }
 
-        // instance click
+        // Grid click: route by mode FIRST
+        if (rawSlot >= 0 && rawSlot < 45) {
+            if (m == Mode.TEMPLATES) {
+                handleTemplateClick(p, rawSlot, e);
+                return;
+            }
+
+            handleInstanceClick(p, rawSlot, e);
+        }
+    }
+
+    private void handleInstanceClick(Player p, int rawSlot, InventoryClickEvent e) {
         DynStatus st = status.getOrDefault(p.getUniqueId(), new DynStatus(List.of()));
         int pg = page.getOrDefault(p.getUniqueId(), 0);
-        int idx = pg * 45 + slot;
+        int idx = pg * 45 + rawSlot;
         if (idx < 0 || idx >= st.instances().size()) return;
 
         DynStatus.Instance inst = st.instances().get(idx);
-        Mode m = mode.getOrDefault(p.getUniqueId(), Mode.INSTANCES);
-        if (m == Mode.TEMPLATES) {
-            handleTemplateClick(p, slot, e);
-            return;
-        }
+
         boolean right = e.isRightClick();
         boolean shiftLeft = e.isLeftClick() && e.isShiftClick();
+
         if (shiftLeft) {
             if (commandInput == null) {
                 p.sendMessage("§cCommand input not configured.");
@@ -183,12 +201,12 @@ public final class DynGui implements Listener {
             p.sendMessage("§7Type §fcancel§7 to abort.");
             return;
         }
+
         if (!right) {
             plugin.messenger().connect(p, inst.name());
             return;
         }
 
-        // Start/Stop toggle
         String s = inst.state().toUpperCase();
         if ("RUNNING".equals(s) || "STARTING".equals(s)) {
             plugin.messenger().sendAction(p, "STOP", inst.name(), "");
@@ -196,9 +214,7 @@ public final class DynGui implements Listener {
         } else {
             plugin.messenger().sendAction(p, "START", inst.name(), "");
             p.sendMessage("§7Starting " + inst.name() + "...");
-            new TimedTask(plugin, 10, () -> {
-                plugin.messenger().requestStatus(p);
-            });
+            new StartWatchTask(plugin, p, inst.name()).runTaskLater(plugin, 10L);
         }
     }
 
@@ -232,10 +248,14 @@ public final class DynGui implements Listener {
             inv.setItem(i, it);
         }
     }
-    private void handleTemplateClick(Player p, int slot, InventoryClickEvent e) {
+    private void handleTemplateClick(Player p, int rawSlot, InventoryClickEvent e) {
+        // Only handle clicks in the top inventory (the GUI), not the player's inventory
+        if (rawSlot < 0 || rawSlot >= 45) return;
+
         DynTemplates tp = templates.getOrDefault(p.getUniqueId(), new DynTemplates(List.of()));
         int pg = page.getOrDefault(p.getUniqueId(), 0);
-        int idx = pg * 45 + slot;
+
+        int idx = pg * 45 + rawSlot;
         if (idx < 0 || idx >= tp.items().size()) return;
 
         DynTemplates.Item item = tp.items().get(idx);
@@ -243,7 +263,9 @@ public final class DynGui implements Listener {
         if (e.isLeftClick()) {
             // ACTION: PLAY_ON (instance=hostId, template=templateName)
             plugin.messenger().sendAction(p, "PLAY_ON", item.hostId(), item.template());
-            p.sendMessage("§7Starting " + item.template() + " on " + item.hostId() + "...");
+
+            p.sendMessage("§7Starting §f" + item.template() + "§7 on host §f" + item.hostId() + "§7...");
+            return;
         }
     }
 

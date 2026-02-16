@@ -10,6 +10,8 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public final class InstanceManager {
 
+    private final TemplateManager templateManager;
+
     public record CreateResponse(String name, int port) {}
     public record StatusItem(String name, int port, String state) {}
     public record StatusResponse(String hostId, List<StatusItem> instances) {}
@@ -33,6 +35,7 @@ public final class InstanceManager {
         this.portMin = cfg.portMin();
         this.portMax = cfg.portMax();
         this.hostId = cfg.hostId();
+        this.templateManager = new TemplateManager(templates, om);
 
         Files.createDirectories(templates);
         Files.createDirectories(instances);
@@ -53,22 +56,59 @@ public final class InstanceManager {
         if (!Files.isDirectory(templateDir)) throw new IOException("Template not found: " + templateName);
         if (Files.exists(instanceDir)) throw new IOException("Instance already exists: " + instanceName);
 
+        TemplateMeta tm = templateManager.get(templateName);
+
+        // Resolve jar name
+        String jarName = (tm != null && tm.jar != null && !tm.jar.isBlank())
+                ? tm.jar
+                : "server.jar";
+
+        // Validate jar exists in template BEFORE copying
+        Path templateJar = templateDir.resolve(jarName);
+        if (!Files.exists(templateJar)) {
+            throw new IOException("Template jar missing: " + templateJar);
+        }
+
+        // Resolve per-template jvm args (optional)
+        String[] resolvedJvmArgs = (tm != null && tm.jvm != null && tm.jvm.args != null && !tm.jvm.args.isEmpty())
+                ? tm.jvm.args.toArray(new String[0])
+                : null;
+
+        // Pool + persistence flags
+        boolean pooled = tm != null && tm.pool != null && tm.pool.enabled;
+        boolean persistent = (tm == null || tm.data == null) ? true : tm.data.persistent;
+
+        // Copy template -> instance
+        System.out.println("[Host] Copying template " + templateName + " -> " + instanceName);
         copyDir(templateDir, instanceDir);
+        System.out.println("[Host] Copy done for " + instanceName);
 
         int port = allocatePort();
         writeOrUpdateServerProperties(instanceDir, port);
 
-        String jarName = findJarName(instanceDir);
-        writeMeta(instanceDir, new InstanceMeta(instanceName, templateName, port, jarName));
-
-        InstanceMeta meta = new InstanceMeta(instanceName, templateName, port, jarName);
+        InstanceMeta meta = new InstanceMeta();
+        meta.name = instanceName;
+        meta.template = templateName;
+        meta.port = port;
+        meta.jar = jarName;
+        meta.pooled = pooled;
+        meta.persistent = persistent;
+        meta.jvmArgs = resolvedJvmArgs; // can be null
         meta.autoStart = false;
         meta.lastState = "STOPPED";
         meta.lastUpdated = System.currentTimeMillis();
+
         writeMeta(instanceDir, meta);
+
+        // Optional: also validate jar exists in instance after copy
+        Path instanceJar = instanceDir.resolve(jarName);
+        if (!Files.exists(instanceJar)) {
+            throw new IOException("Jar was not copied into instance: " + instanceJar);
+        }
 
         return new CreateResponse(instanceName, port);
     }
+
 
     public void start(String instanceName) throws IOException {
         requireName(instanceName);
@@ -76,36 +116,82 @@ public final class InstanceManager {
         if (!Files.isDirectory(dir)) throw new IOException("Instance not found: " + instanceName);
 
         ManagedInstance existing = live.get(instanceName);
-        if (existing != null && existing.isAlive()) throw new IOException("Instance already running: " + instanceName);
+        if (existing != null) {
+            if (existing.isAlive()) throw new IOException("Instance already running: " + instanceName);
+            // stale entry, clean it
+            live.remove(instanceName);
+        }
 
         InstanceMeta meta = readMeta(dir);
-        Path jarPath = dir.resolve(meta.jar == null || meta.jar.isBlank() ? findJarName(dir) : meta.jar);
+        if (meta == null) throw new IOException("Missing instance.json for: " + instanceName);
+
+        String jarName = (meta.jar != null && !meta.jar.isBlank()) ? meta.jar : "paper.jar";
+
+        List<String> jvmArgs = new ArrayList<>();
+        if (meta.jvmArgs != null && meta.jvmArgs.length > 0) jvmArgs.addAll(Arrays.asList(meta.jvmArgs));
+        else jvmArgs.addAll(cfg.jvmArgs());
+
+        Path jarPath = dir.resolve(jarName);
         if (!Files.exists(jarPath)) throw new IOException("Missing jar: " + jarPath.getFileName());
 
+        // persist intent + starting
+        meta.lastState = "STARTING";
+        meta.autoStart = true;
+        meta.lastUpdated = System.currentTimeMillis();
+        writeMeta(dir, meta);
+        TemplateMeta tm = templateManager.get(meta.template);
+
+        ManagedInstance.ReadinessType rType = ManagedInstance.ReadinessType.LOG_CONTAINS;
+        String rContains = "Done (";
+        String rHost = "127.0.0.1";
+        long rTimeout = 20000;
+
+        if (tm != null && tm.readiness != null) {
+            String t = tm.readiness.type == null ? "" : tm.readiness.type.trim().toUpperCase();
+            if (t.equals("TCP_PORT")) rType = ManagedInstance.ReadinessType.TCP_PORT;
+            else if (t.equals("NONE")) rType = ManagedInstance.ReadinessType.NONE;
+            else rType = ManagedInstance.ReadinessType.LOG_CONTAINS;
+
+            if (tm.readiness.contains != null && !tm.readiness.contains.isBlank()) rContains = tm.readiness.contains;
+            if (tm.readiness.host != null && !tm.readiness.host.isBlank()) rHost = tm.readiness.host;
+            if (tm.readiness.timeoutMs > 0) rTimeout = tm.readiness.timeoutMs;
+        }
         ManagedInstance mi = new ManagedInstance(
-                cfg.javaCmd(), cfg.jvmArgs(), instanceName, dir, jarPath,
-                (n, st) -> {
-                    try { onInstanceStateChanged(n, st); }
-                    catch (Exception e) { System.out.println("[ServerFabric-Host] Failed to persist state for " + n + ": " + e.getMessage()); }
-                }
+                cfg.javaCmd(), jvmArgs, instanceName, dir, jarPath,
+                rType, rContains, rHost, meta.port, rTimeout,
+                (n, st) -> { try { onInstanceStateChanged(n, st); } catch (Exception ignored) {} },
+                (n, code, stopping) -> live.remove(n)
         );
+
         mi.start();
         live.put(instanceName, mi);
     }
 
+
     public void stop(String instanceName) throws IOException {
         requireName(instanceName);
-        ManagedInstance mi = live.get(instanceName);
-        if (mi == null || !mi.isAlive()) throw new IOException("Not running: " + instanceName);
-        mi.stopGraceful();
+
         Path dir = instances.resolve(instanceName);
-        if (Files.isDirectory(dir)) {
-            InstanceMeta meta = readMeta(dir);
-            meta.autoStart = false;                 // intentional stop should NOT auto-start on host reboot
-            meta.lastState = "STOPPED";
+        if (!Files.isDirectory(dir)) throw new IOException("Instance not found: " + instanceName);
+
+        ManagedInstance mi = live.get(instanceName);
+
+        // Always persist "intentional stop" even if it's already dead
+        InstanceMeta meta = readMeta(dir);
+        if (meta != null) {
+            meta.autoStart = false; // intentional stop should NOT auto-start on host reboot
+            meta.lastState = "STOPPING"; // let exit watcher set STOPPED
             meta.lastUpdated = System.currentTimeMillis();
             writeMeta(dir, meta);
         }
+
+        // If not running, treat as already stopped
+        if (mi == null || !mi.isAlive()) {
+            live.remove(instanceName); // cleanup stale entry
+            return;
+        }
+
+        mi.stopGraceful();
     }
 
     public void delete(String instanceName) throws IOException {
@@ -224,18 +310,29 @@ public final class InstanceManager {
     }
 
     private static void copyDir(Path src, Path dst) throws IOException {
-        Files.walk(src).forEach(from -> {
-            try {
-                Path to = dst.resolve(src.relativize(from).toString());
-                if (Files.isDirectory(from)) {
-                    Files.createDirectories(to);
-                } else {
-                    Files.copy(from, to, StandardCopyOption.COPY_ATTRIBUTES);
+        try (var stream = Files.walk(src)) {
+            stream.forEach(from -> {
+                try {
+                    Path rel = src.relativize(from);
+                    Path to = dst.resolve(rel);
+
+                    if (Files.isDirectory(from)) {
+                        Files.createDirectories(to);
+                        return;
+                    }
+
+                    Files.createDirectories(to.getParent());
+                    Files.copy(from, to,
+                            StandardCopyOption.COPY_ATTRIBUTES,
+                            StandardCopyOption.REPLACE_EXISTING
+                    );
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
                 }
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
-            }
-        });
+            });
+        } catch (UncheckedIOException e) {
+            throw e.getCause();
+        }
     }
 
     private static void deleteDir(Path dir) throws IOException {
@@ -258,7 +355,12 @@ public final class InstanceManager {
         if (cmd == null || cmd.isBlank()) throw new IOException("Command required");
 
         ManagedInstance mi = live.get(instanceName);
-        if (mi == null || !mi.isAlive()) throw new IOException("Not running: " + instanceName);
+        if (mi == null) throw new IOException("Not running: " + instanceName);
+
+        if (!mi.isAlive()) {
+            live.remove(instanceName);
+            throw new IOException("Not running: " + instanceName);
+        }
 
         mi.sendCommand(cmd);
     }

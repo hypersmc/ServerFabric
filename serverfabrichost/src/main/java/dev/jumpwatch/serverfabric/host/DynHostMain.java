@@ -3,6 +3,10 @@ package dev.jumpwatch.serverfabric.host;
 import com.sun.net.httpserver.HttpServer;
 import java.net.InetSocketAddress;
 import java.nio.file.Path;
+import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 //ServerFabric-Host
 public final class DynHostMain {
@@ -32,6 +36,15 @@ public final class DynHostMain {
         HttpServer server = HttpServer.create(
                 new InetSocketAddress(cfg.bindHost(), cfg.bindPort()), 0
         );
+        Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
+            System.out.println("[ServerFabric-Host] Uncaught in " + t.getName() + ": " + e);
+            e.printStackTrace();
+        });
+        server.setExecutor(new ThreadPoolExecutor(
+                4, 32,
+                60L, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(500)
+        ));
         api.register(server);
         server.start();
 

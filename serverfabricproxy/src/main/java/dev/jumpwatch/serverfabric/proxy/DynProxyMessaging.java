@@ -23,6 +23,7 @@ public final class DynProxyMessaging implements Listener {
 
     @EventHandler
     public void onPluginMessage(PluginMessageEvent e) {
+
         if (!CHANNEL.equals(e.getTag())) return;
         if (!(e.getSender() instanceof Server server)) return;
 

@@ -91,6 +91,7 @@ public final class HostHttpApi {
         ex.getResponseHeaders().set("Content-Type", "application/json");
         ex.sendResponseHeaders(code, bytes.length);
         ex.getResponseBody().write(bytes);
+        ex.getResponseBody().close();
     }
 
     private static String esc(String s) { return s.replace("\\", "\\\\").replace("\"", "\\\""); }
