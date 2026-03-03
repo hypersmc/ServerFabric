@@ -433,4 +433,13 @@ public final class InstanceManager {
             }
         }
     }
+    public void stopAllGraceful() {
+        for (String name : new ArrayList<>(live.keySet())){
+            try {
+                stop(name);
+            } catch (IOException e) {
+                System.out.println("[ServerFabric-Host] stopAll failed for " + name + ": " + e.getMessage());
+            }
+        }
+    }
 }

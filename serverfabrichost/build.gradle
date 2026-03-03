@@ -15,6 +15,8 @@ repositories {
 dependencies {
     implementation platform("com.fasterxml.jackson:jackson-bom:2.17.2")
     implementation "com.fasterxml.jackson.core:jackson-databind"
+    implementation "org.quartz-scheduler:quartz:2.3.2"
+    implementation "com.cronutils:cron-utils:9.2.1"
 }
 
 shadowJar {

@@ -155,8 +155,7 @@ Typical flow:
 
 ## Roadmap Ideas
 * Auto-connect after "Play" (create/start/wait ready/send player)
-* Instance pooling per template (reuse stopped instances)
-* Template metadata (`template.json`): jar name, JVM args, plugins, copy rules
+* Template metadata (`template.json`): plugins, copy rules
 * Live logs view in GUI (tail last N lines)
 * Host health + "HOST DOWN" status in GUI
 * Smarter host selection (least loaded / least instances / weighted)
