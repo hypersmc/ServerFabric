@@ -1,5 +1,7 @@
 package dev.jumpwatch.serverfabric.host;
 
+import dev.jumpwatch.serverfabric.host.instance.InstanceManager;
+
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.util.Locale;
@@ -17,7 +19,7 @@ public final class HostConsole implements Runnable {
 
     @Override
     public void run() {
-        System.out.println("[ServerFabric-Host] Console ready. Commands: help, list, select <name>, endselection, stop, kill");
+        System.out.println("[ServerFabric-Host] Console ready. Commands: help, list, select <name>, endselection, stop, kill, killinstance <name>");
 
         try (BufferedReader br = new BufferedReader(new InputStreamReader(System.in))) {
             String line;
@@ -86,6 +88,19 @@ public final class HostConsole implements Runnable {
                 System.out.println("[ServerFabric-Host] Selected " + selected + ". Type commands to send. Use endselection to exit selection. Use :help for host commands.");
             }
 
+            case "killinstance" -> {
+                if (arg.isEmpty()) {
+                    System.out.println("[ServerFabric-Host] Usage: killinstance <instance-name>");
+                    return;
+                }
+                try {
+                    mgr.kill(arg);
+                    System.out.println("[ServerFabric-Host] Force killed " + arg);
+                } catch (Exception e) {
+                    System.out.println("[ServerFabric-Host] Kill failed for " + arg + ": " + e.getMessage());
+                }
+            }
+
             case "stop", "exit", "quit" -> {
                 System.out.println("[ServerFabric-Host] Stop requested...");
                 requestStopHost.run();
@@ -108,6 +123,7 @@ public final class HostConsole implements Runnable {
   select <name>          - route console input to a specific instance
   endselection | end     - leave instance selection mode
   stop | exit | quit     - stop the host (graceful)
+  killinstance <name>    - Kill a server instance (forcefully)
   kill                  - exit immediately
 
 While selected:

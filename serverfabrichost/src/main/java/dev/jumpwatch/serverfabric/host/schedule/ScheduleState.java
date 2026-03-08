@@ -1,4 +1,4 @@
-package dev.jumpwatch.serverfabric.host;
+package dev.jumpwatch.serverfabric.host.schedule;
 
 import java.util.HashMap;
 import java.util.Map;

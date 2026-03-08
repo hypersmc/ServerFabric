@@ -19,6 +19,7 @@ public final class DynMessenger implements PluginMessageListener {
     public void requestStatus(Player player) {
         send(player, out -> {
             out.writeUTF("STATUS_REQUEST");
+            out.writeInt(ClientVersions.MESSAGING_PROTOCOL_VERSION);
             out.writeUTF(player.getUniqueId().toString());
         });
     }

@@ -137,6 +137,14 @@ public final class DynProxyMessaging implements Listener {
                         reply(server, playerUuid, true, "Deleted " + instance);
                     }
 
+                    case "KILL" -> {
+                        HostRegistry.HostDef h = hostForExistingInstance(instance);
+                        if (h == null) { reply(server, playerUuid, false, "Unknown host for " + instance); return; }
+
+                        h.client().kill(instance);
+                        reply(server, playerUuid, true, "Killed " + instance);
+                    }
+
                     case "COMMAND" -> {
                         HostRegistry.HostDef h = hostForExistingInstance(instance);
                         if (h == null) { reply(server, playerUuid, false, "Unknown host for " + instance); return; }

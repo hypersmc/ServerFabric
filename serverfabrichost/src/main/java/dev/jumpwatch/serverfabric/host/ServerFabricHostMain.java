@@ -1,16 +1,18 @@
 package dev.jumpwatch.serverfabric.host;
 
 import com.sun.net.httpserver.HttpServer;
+import dev.jumpwatch.serverfabric.host.instance.InstanceManager;
+import dev.jumpwatch.serverfabric.host.schedule.SchedulerService;
+
 import java.net.InetSocketAddress;
 import java.nio.file.Path;
-import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 //ServerFabric-Host
-public final class DynHostMain {
+public final class ServerFabricHostMain {
     public static void main(String[] args) throws Exception {
         Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
             System.out.println("[ServerFabric-Host] Uncaught in " + t.getName() + ": " + e);

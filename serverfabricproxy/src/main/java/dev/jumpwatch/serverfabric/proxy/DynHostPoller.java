@@ -38,7 +38,24 @@ public final class DynHostPoller {
 
         for (HostRegistry.HostDef h : hosts.allHosts()) {
             try {
-                HostClient.StatusResponse st = h.client().status(); // MUST have timeouts
+                HostVersionInfo v = h.client().version();
+
+                boolean compatible = Compatibility.isHostApiCompatible(
+                        ProxyVersions.HOST_API_VERSION,
+                        ProxyVersions.MIN_SUPPORTED_HOST_API_VERSION,
+                        v.hostApiVersion(),
+                        v.minSupportedHostApiVersion()
+                );
+
+                if (!compatible) {
+                    plugin.getLogger().warning("Skipping incompatible host " + h.id() +
+                            " hostVersion=" + v.version() +
+                            " hostApi=" + v.hostApiVersion() +
+                            " hostMin=" + v.minSupportedHostApiVersion());
+                    continue;
+                }
+
+                HostClient.StatusResponse st = h.client().status();
                 successfulHosts++;
 
                 for (HostClient.InstanceStatus inst : st.instances) {

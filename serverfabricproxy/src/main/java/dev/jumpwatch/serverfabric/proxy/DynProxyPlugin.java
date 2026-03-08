@@ -27,6 +27,8 @@ public final class DynProxyPlugin extends Plugin {
         }
 
         this.hosts = new HostRegistry();
+
+
         loadHostsFromConfig();
 
         ProxyServer.getInstance().registerChannel("serverfabric:main");
@@ -71,6 +73,36 @@ public final class DynProxyPlugin extends Plugin {
 
             for (HostRegistry.HostDef h : hosts.allHosts()) {
                 try {
+                    HostVersionInfo v = h.client().version();
+
+                    boolean compatible = Compatibility.isHostApiCompatible(
+                            ProxyVersions.HOST_API_VERSION,
+                            ProxyVersions.MIN_SUPPORTED_HOST_API_VERSION,
+                            v.hostApiVersion(),
+                            v.minSupportedHostApiVersion()
+                    );
+
+                    if (!compatible) {
+                        getLogger().severe("Host " + h.id() + " is incompatible. " +
+                                "hostVersion=" + v.version() +
+                                " hostApi=" + v.hostApiVersion() +
+                                " hostMin=" + v.minSupportedHostApiVersion() +
+                                " proxyApi=" + ProxyVersions.HOST_API_VERSION +
+                                " proxyMin=" + ProxyVersions.MIN_SUPPORTED_HOST_API_VERSION);
+                        continue;
+                    }
+
+                    if (v.hostApiVersion() != ProxyVersions.HOST_API_VERSION) {
+                        getLogger().warning("Host " + h.id() + " is compatible but not exact match. " +
+                                "hostVersion=" + v.version() +
+                                " hostApi=" + v.hostApiVersion() +
+                                " proxyApi=" + ProxyVersions.HOST_API_VERSION);
+                    } else {
+                        getLogger().info("Host " + h.id() + " is compatible. " +
+                                "hostVersion=" + v.version() +
+                                " hostApi=" + v.hostApiVersion());
+                    }
+
                     HostClient.StatusResponse status = h.client().status();
 
                     // Prefer status.hostId (from host) but fall back to config id

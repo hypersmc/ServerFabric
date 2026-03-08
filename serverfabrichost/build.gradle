@@ -4,7 +4,8 @@ plugins {
 }
 
 java {
-    toolchain { languageVersion = JavaLanguageVersion.of(21) } // agent can be Java 11+
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21) } // agent can be Java 11+
 }
 
 repositories {
@@ -34,6 +35,6 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.named("shadowJar") {
     manifest {
-        attributes "Main-Class": "dev.jumpwatch.serverfabric.host.DynHostMain"
+        attributes "Main-Class": "dev.jumpwatch.serverfabric.host.ServerFabricHostMain"
     }
 }

@@ -1,5 +1,8 @@
 package dev.jumpwatch.serverfabric.proxy;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -10,7 +13,8 @@ import java.util.List;
 public final class HostClient {
     private final String baseUrl;
     private final String token;
-
+    private final ObjectMapper om = new ObjectMapper()
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     public HostClient(String baseUrl, String token) {
         this.baseUrl = baseUrl;
         this.token = token;
@@ -34,6 +38,11 @@ public final class HostClient {
     public void start(String name) throws IOException { post("/server/start", "{\"name\":\"" + esc(name) + "\"}"); }
     public void stop(String name) throws IOException  { post("/server/stop",  "{\"name\":\"" + esc(name) + "\"}"); }
     public void delete(String name) throws IOException{ post("/server/delete","{\"name\":\"" + esc(name) + "\"}"); }
+    public void kill(String name) throws IOException { post("/server/kill", "{\"name\":\"" + esc(name) + "\"}" );  }
+    public HostVersionInfo version() throws IOException {
+        String json = get("/version");
+        return om.readValue(json, HostVersionInfo.class);
+    }
 
     private String post(String path, String body) throws IOException {
         URL url = new URL(baseUrl + path);

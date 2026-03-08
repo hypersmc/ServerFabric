@@ -1,4 +1,4 @@
-package dev.jumpwatch.serverfabric.host;
+package dev.jumpwatch.serverfabric.host.schedule;
 
 import com.cronutils.model.Cron;
 import com.cronutils.model.CronType;
@@ -6,7 +6,7 @@ import com.cronutils.model.definition.CronDefinitionBuilder;
 import com.cronutils.parser.CronParser;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.jumpwatch.serverfabric.host.InstanceManager;
+import dev.jumpwatch.serverfabric.host.instance.InstanceManager;
 import org.quartz.*;
 import org.quartz.impl.StdSchedulerFactory;
 

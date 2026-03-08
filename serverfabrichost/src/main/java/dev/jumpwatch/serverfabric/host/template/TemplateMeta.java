@@ -1,4 +1,4 @@
-package dev.jumpwatch.serverfabric.host;
+package dev.jumpwatch.serverfabric.host.template;
 
 import java.util.ArrayList;
 import java.util.List;

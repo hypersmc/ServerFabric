@@ -1,8 +1,8 @@
-package dev.jumpwatch.serverfabric.host;
+package dev.jumpwatch.serverfabric.host.schedule;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.jumpwatch.serverfabric.host.InstanceManager;
+import dev.jumpwatch.serverfabric.host.instance.InstanceManager;
 import org.quartz.*;
 
 import java.nio.file.Files;

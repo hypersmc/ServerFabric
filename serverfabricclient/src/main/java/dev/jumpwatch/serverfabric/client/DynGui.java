@@ -100,6 +100,7 @@ public final class DynGui implements Listener {
                     "",
                     "§aLeft-click: Join",
                     "§eRight-click: Start/Stop",
+                    "§cShift-right: Kill",
                     "§bShift-left: Send command"
             ));
             it.setItemMeta(meta);
@@ -189,6 +190,13 @@ public final class DynGui implements Listener {
 
         boolean right = e.isRightClick();
         boolean shiftLeft = e.isLeftClick() && e.isShiftClick();
+        boolean shiftRight = e.isRightClick() && e.isShiftClick();
+
+        if (shiftRight) {
+            plugin.messenger().sendAction(p, "KILL", inst.name(), "");
+            p.sendMessage("§cForce killing " + inst.name() + "...");
+            return;
+        }
 
         if (shiftLeft) {
             if (commandInput == null) {

@@ -1,6 +1,6 @@
-package dev.jumpwatch.serverfabric.host;
+package dev.jumpwatch.serverfabric.host.schedule;
 
-import dev.jumpwatch.serverfabric.host.InstanceManager;
+import dev.jumpwatch.serverfabric.host.instance.InstanceManager;
 
 import java.util.Locale;
 

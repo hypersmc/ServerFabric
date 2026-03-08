@@ -3,6 +3,7 @@ package dev.jumpwatch.serverfabric.host;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.jumpwatch.serverfabric.host.instance.InstanceManager;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -52,6 +53,30 @@ public final class HostHttpApi {
             writeJson(ex, 200, "{\"ok\":true}");
         }));
 
+        server.createContext("/server/runtime", ex -> handleAuthed(ex, () -> {
+            var req = om.readTree(readBody(ex));
+            String name = req.path("name").asText("");
+            writeJson(ex, 200, om.writeValueAsString(mgr.runtimeInfo(name)));
+        }));
+
+        server.createContext("/server/kill", ex -> handleAuthed(ex, () -> {
+            var req = om.readTree(readBody(ex));
+            mgr.kill(req.path("name").asText(""));
+            writeJson(ex, 200, "{\"ok\":true}");
+        }));
+
+        server.createContext("/server/logs", ex -> handleAuthed(ex, () -> {
+            var req = om.readTree(readBody(ex));
+            String name = req.path("name").asText("");
+            writeJson(ex, 200, om.writeValueAsString(mgr.recentLogs(name)));
+        }));
+
+        server.createContext("/server/stats", ex -> handleAuthed(ex, () -> {
+            var req = om.readTree(readBody(ex));
+            String name = req.path("name").asText("");
+            writeJson(ex, 200, om.writeValueAsString(mgr.stats(name)));
+        }));
+
         server.createContext("/templates", ex -> handleAuthed(ex, () -> {
             var node = om.createObjectNode();
             node.put("hostId", mgr.hostId());
@@ -59,7 +84,15 @@ public final class HostHttpApi {
             for (String t : mgr.listTemplates()) arr.add(t);
             writeJson(ex, 200, om.writeValueAsString(node));
         }));
-
+        server.createContext("/version", ex -> handleAuthed(ex, () -> {
+            var info = new HostVersionInfo(
+                    HostVersions.PRODUCT,
+                    HostVersions.VERSION,
+                    HostVersions.HOST_API_VERSION,
+                    HostVersions.MIN_SUPPORTED_HOST_API_VERSION
+            );
+            writeJson(ex, 200, om.writeValueAsString(info));
+        }));
         server.createContext("/status", ex -> handleAuthed(ex, () -> {
             writeJson(ex, 200, om.writeValueAsString(mgr.status()));
         }));

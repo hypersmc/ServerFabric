@@ -1,4 +1,4 @@
-package dev.jumpwatch.serverfabric.host;
+package dev.jumpwatch.serverfabric.host.instance;
 
 public final class InstanceMeta {
     public String name;
