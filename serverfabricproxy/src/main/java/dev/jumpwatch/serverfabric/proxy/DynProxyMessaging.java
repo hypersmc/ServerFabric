@@ -23,7 +23,6 @@ public final class DynProxyMessaging implements Listener {
 
     @EventHandler
     public void onPluginMessage(PluginMessageEvent e) {
-
         if (!CHANNEL.equals(e.getTag())) return;
         if (!(e.getSender() instanceof Server server)) return;
 
@@ -31,22 +30,28 @@ public final class DynProxyMessaging implements Listener {
             String type = in.readUTF();
 
             if ("STATUS_REQUEST".equals(type)) {
+                int protocolVersion = in.readInt();
                 String playerUuid = in.readUTF();
+
                 handleStatusRequest(server, playerUuid);
                 return;
             }
 
             if ("ACTION".equals(type)) {
+                int protocolVersion = in.readInt();
                 String playerUuid = in.readUTF();
                 String actionType = in.readUTF();   // START/STOP/DELETE/CREATE/PLAY/COMMAND
                 String instance = in.readUTF();     // instance name (or desired name for CREATE)
                 String template = in.readUTF();     // template name OR command payload for COMMAND
+
                 handleAction(server, playerUuid, actionType, instance, template);
                 return;
             }
 
             if ("TEMPLATES_REQUEST".equals(type)) {
+                int protocolVersion = in.readInt();
                 String playerUuid = in.readUTF();
+
                 handleTemplatesRequest(server, playerUuid);
                 return;
             }
