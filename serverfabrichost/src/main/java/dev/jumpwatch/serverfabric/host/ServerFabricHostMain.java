@@ -4,8 +4,12 @@ import com.sun.net.httpserver.HttpServer;
 import dev.jumpwatch.serverfabric.host.instance.InstanceManager;
 import dev.jumpwatch.serverfabric.host.schedule.SchedulerService;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -27,8 +31,10 @@ public final class ServerFabricHostMain {
             }
         }
 
-        HostConfig cfg = HostConfig.load(configPath);
+        ensureDefaultConfigExists(configPath);
 
+        HostConfig cfg = HostConfig.load(configPath);
+        new HostBootstrap(cfg).run();
         InstanceManager mgr = new InstanceManager(cfg);
 
         HttpServer server = HttpServer.create(new InetSocketAddress(cfg.bindHost(), cfg.bindPort()), 0);
@@ -82,5 +88,34 @@ public final class ServerFabricHostMain {
         Thread console = new Thread(new HostConsole(mgr, requestStopHost), "ServerFabric-Host-console");
         console.setDaemon(true);
         console.start();
+    }
+
+
+
+    private static void ensureDefaultConfigExists(Path configPath) throws IOException {
+        Path parent = configPath.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+
+        if (Files.exists(configPath)) {
+            return;
+        }
+
+        List<String> lines = List.of(
+                "# ServerFabric Host default config",
+                "token=CHANGE_ME_TOKEN",
+                "hostId=local",
+                "bindHost=0.0.0.0",
+                "bindPort=8085",
+                "rootPath=dyn/root",
+                "javaCmd=java",
+                "portMin=25566",
+                "portMax=25666",
+                "jvmArgs=-Xms1G -Xmx2G"
+        );
+
+        Files.write(configPath, lines, StandardOpenOption.CREATE_NEW);
+        System.out.println("[ServerFabric-Host] Created default config at " + configPath.toAbsolutePath());
     }
 }

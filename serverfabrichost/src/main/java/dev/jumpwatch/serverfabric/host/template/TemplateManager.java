@@ -24,7 +24,7 @@ public final class TemplateManager {
             try {
                 return load(t);
             } catch (IOException e) {
-                System.out.println("[Host] Failed to load template.json for " + t + ": " + e.getMessage());
+                System.out.println("[ServerFabric-Host] Failed to load template.json for " + t + ": " + e.getMessage());
                 return new TemplateMeta();
             }
         });

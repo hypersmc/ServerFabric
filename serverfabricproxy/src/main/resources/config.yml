@@ -8,6 +8,7 @@ hosts:
     baseUrl: "http://127.0.0.1:8085" # This can be a domain with port.
     connectHost: "127.0.0.1"   # what Bungee uses to connect to servers on THIS host.
     # MUST BE AN IP.
+
   - id: "node2"
     baseUrl: "http://10.0.0.22:8085" # This can be a domain with port.
     connectHost: "10.0.0.22"   # what Bungee uses to connect to servers on THIS host.

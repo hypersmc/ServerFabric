@@ -23,10 +23,18 @@ public final class DynMessenger implements PluginMessageListener {
             out.writeUTF(player.getUniqueId().toString());
         });
     }
-
+    public void requestStats(Player player, String instanceName) {
+        send(player, out -> {
+            out.writeUTF("STATS_REQUEST");
+            out.writeInt(ClientVersions.MESSAGING_PROTOCOL_VERSION);
+            out.writeUTF(player.getUniqueId().toString());
+            out.writeUTF(instanceName);
+        });
+    }
     public void sendAction(Player player, String actionType, String instanceName, String template) {
         send(player, out -> {
             out.writeUTF("ACTION");
+            out.writeInt(ClientVersions.MESSAGING_PROTOCOL_VERSION);
             out.writeUTF(player.getUniqueId().toString());
             out.writeUTF(actionType);
             out.writeUTF(instanceName == null ? "" : instanceName);
@@ -68,6 +76,39 @@ public final class DynMessenger implements PluginMessageListener {
                 }
 
                 gui.setStatus(targetPlayer, new DynStatus(instances));
+                return;
+            }
+
+            if ("STATS_RESPONSE".equals(type)) {
+                UUID target = UUID.fromString(in.readUTF());
+                Player targetPlayer = org.bukkit.Bukkit.getPlayer(target);
+                if (targetPlayer == null) return;
+
+                String instanceName = in.readUTF();
+                String state = in.readUTF();
+                boolean alive = Boolean.parseBoolean(in.readUTF());
+                boolean stopping = Boolean.parseBoolean(in.readUTF());
+                long pid = Long.parseLong(in.readUTF());
+                long uptimeMs = Long.parseLong(in.readUTF());
+                long startedAtMs = Long.parseLong(in.readUTF());
+                long lastOutputAtMs = Long.parseLong(in.readUTF());
+                long memoryRssBytes = Long.parseLong(in.readUTF());
+                long memoryVirtualBytes = Long.parseLong(in.readUTF());
+                long diskUsageBytes = Long.parseLong(in.readUTF());
+
+                gui.setInstanceStats(targetPlayer, new DynInstanceStats(
+                        instanceName,
+                        state,
+                        alive,
+                        stopping,
+                        pid,
+                        uptimeMs,
+                        startedAtMs,
+                        lastOutputAtMs,
+                        memoryRssBytes,
+                        memoryVirtualBytes,
+                        diskUsageBytes
+                ));
                 return;
             }
 
@@ -123,9 +164,11 @@ public final class DynMessenger implements PluginMessageListener {
     public void requestTemplates(Player player) {
         send(player, out -> {
             out.writeUTF("TEMPLATES_REQUEST");
+            out.writeInt(ClientVersions.MESSAGING_PROTOCOL_VERSION);
             out.writeUTF(player.getUniqueId().toString());
         });
     }
+
 
     @FunctionalInterface
     interface IoConsumer<T> { void accept(T t) throws Exception; }

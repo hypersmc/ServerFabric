@@ -17,6 +17,7 @@ public final class InstanceManager {
     private final InstanceStore store;
     private final PortManager ports;
     private final InstanceStatsService statsService;
+    private final BuildJdkManager buildJdkManager;
 
     public record CreateResponse(String name, int port) {}
     public record StatusItem(String name, int port, String state) {}
@@ -25,6 +26,7 @@ public final class InstanceManager {
     private final HostConfig cfg;
     private final Path root;
     private final Path templates;
+    private final Path buildCache;
 
     private static final long STOP_FORCE_TIMEOUT_MS = 15_000L; //Temp for now, later it's going in the config.
 
@@ -40,7 +42,9 @@ public final class InstanceManager {
         this.templateManager = new TemplateManager(templates, om);
         this.store = new InstanceStore(instances, om);
         this.statsService = new InstanceStatsService(store);
-
+        this.buildCache = root.resolve("build-cache");
+        this.buildJdkManager = new BuildJdkManager(cfg);
+        Files.createDirectories(buildCache);
         Files.createDirectories(templates);
         Files.createDirectories(instances);
 
@@ -51,8 +55,11 @@ public final class InstanceManager {
     public String hostId() { return cfg.hostId(); }
 
 
-
     public CreateResponse createFromTemplate(String templateName, String instanceName) throws IOException {
+        return createFromTemplate(templateName, instanceName, null);
+    }
+
+    public CreateResponse createFromTemplate(String templateName, String instanceName, String versionOverride) throws IOException {
         return actionGuard.withLock(instanceName, () -> {
             requireName(instanceName);
             if (templateName == null || templateName.isBlank()) throw new IOException("Template required");
@@ -73,9 +80,15 @@ public final class InstanceManager {
                         ? tm.jar
                         : "server.jar";
 
+                String resolvedVersion = resolveEffectiveServerVersion(tm, versionOverride);
+
                 Path templateJar = templateDir.resolve(jarName);
-                if (!Files.exists(templateJar)) {
-                    throw new IOException("Template jar missing: " + templateJar);
+                Path sourceJar;
+
+                if (Files.exists(templateJar)) {
+                    sourceJar = templateJar;
+                } else {
+                    sourceJar = ensureBuiltJar(templateName, templateDir, tm, jarName, resolvedVersion);
                 }
 
                 String[] resolvedJvmArgs = (tm != null && tm.jvm != null && tm.jvm.args != null && !tm.jvm.args.isEmpty())
@@ -85,9 +98,14 @@ public final class InstanceManager {
                 boolean pooled = tm != null && tm.pool != null && tm.pool.enabled;
                 boolean persistent = (tm == null || tm.data == null) ? true : tm.data.persistent;
 
-                System.out.println("[Host] Copying template " + templateName + " -> " + instanceName);
+                System.out.println("[ServerFabric-Host] Copying template " + templateName + " -> " + instanceName);
                 store.copyTemplate(templateDir, instanceDir);
-                System.out.println("[Host] Copy done for " + instanceName);
+                System.out.println("[ServerFabric-Host] Copy done for " + instanceName);
+
+                Path instanceJar = instanceDir.resolve(jarName);
+                if (!Files.exists(instanceJar)) {
+                    Files.copy(sourceJar, instanceJar, StandardCopyOption.REPLACE_EXISTING);
+                }
 
                 allocatedPort = ports.allocate();
                 store.writePort(instanceDir, allocatedPort);
@@ -97,6 +115,7 @@ public final class InstanceManager {
                 meta.template = templateName;
                 meta.port = allocatedPort;
                 meta.jar = jarName;
+                meta.serverVersion = resolvedVersion;
                 meta.pooled = pooled;
                 meta.persistent = persistent;
                 meta.jvmArgs = resolvedJvmArgs;
@@ -106,7 +125,6 @@ public final class InstanceManager {
 
                 store.writeMeta(instanceDir, meta);
 
-                Path instanceJar = instanceDir.resolve(jarName);
                 if (!Files.exists(instanceJar)) {
                     throw new IOException("Jar was not copied into instance: " + instanceJar);
                 }
@@ -133,6 +151,162 @@ public final class InstanceManager {
     }
 
 
+    private Path ensureBuiltJar(String templateName, Path templateDir, TemplateMeta tm, String jarName, String version) throws IOException {
+        Path cachedJar = resolveCachedJarPath(templateName, version, jarName);
+        if (Files.exists(cachedJar)) {
+            return cachedJar;
+        }
+
+        if (tm == null || tm.buildToolExec == null || tm.buildToolExec.isBlank()) {
+            throw new IOException("Template jar missing and no buildToolExec is configured for template: " + templateName);
+        }
+
+        Files.createDirectories(cachedJar.getParent());
+
+        Path workDir = templateDir.resolve(".buildtools-work");
+        Path buildLog = cachedJar.getParent().resolve("buildlog.txt");
+        boolean success = false;
+
+        try {
+            int buildJavaMajor = resolveBuildJavaMajor(templateName, version);
+            BuildJdkManager.BuildJavaEnv javaEnv = buildJdkManager.ensureBuildJdk(buildJavaMajor);
+
+            ProcessBuilder pb = new ProcessBuilder(
+                    "bash",
+                    "-lc",
+                    tm.buildToolExec + " " + escapeShellArg(version) + " " + escapeShellArg(cachedJar.toAbsolutePath().toString())
+            );
+            pb.directory(templateDir.toFile());
+            pb.redirectErrorStream(true);
+            pb.environment().putAll(javaEnv.toEnv());
+
+            System.out.println("[ServerFabric-Host] Building " + templateName + " " + version
+                    + " using " + (javaEnv.internal() ? "internal" : "system")
+                    + " JDK at " + javaEnv.javaHome());
+            System.out.println("[ServerFabric-Host] Build log: " + buildLog);
+
+            Process proc = pb.start();
+
+            try (var logOut = Files.newOutputStream(
+                    buildLog,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.WRITE
+            )) {
+                logOut.write(("[ServerFabric-Host] Template: " + templateName + System.lineSeparator()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                logOut.write(("[ServerFabric-Host] Version: " + version + System.lineSeparator()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                logOut.write(("[ServerFabric-Host] Jar: " + jarName + System.lineSeparator()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                logOut.write(("[ServerFabric-Host] Build Java: " + buildJavaMajor + System.lineSeparator()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                logOut.write(System.lineSeparator().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+                try (var in = proc.getInputStream()) {
+                    in.transferTo(logOut);
+                }
+            }
+
+            int code;
+            try {
+                code = proc.waitFor();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("Build interrupted for template " + templateName + ". See log: " + buildLog, e);
+            }
+
+            if (code != 0) {
+                throw new IOException("Build failed for template " + templateName + " version " + version
+                        + " (exit " + code + "). See log: " + buildLog);
+            }
+
+            if (!Files.exists(cachedJar)) {
+                throw new IOException("Build finished but output jar was not created: " + cachedJar
+                        + ". See log: " + buildLog);
+            }
+
+            success = true;
+            System.out.println("[ServerFabric-Host] Build finished for " + templateName + " " + version);
+            return cachedJar;
+
+        } finally {
+            if (success) {
+                try {
+                    deleteDirIfExists(workDir);
+                    System.out.println("[ServerFabric-Host] Cleaned temporary build dir: " + workDir);
+                } catch (Exception e) {
+                    System.out.println("[ServerFabric-Host] Failed to clean build dir " + workDir + ": " + e.getMessage());
+                }
+            } else {
+                if (Files.exists(workDir)) {
+                    System.out.println("[ServerFabric-Host] Build failed, keeping work dir for debugging: " + workDir);
+                }
+            }
+        }
+    }
+
+    private static void deleteDirIfExists(Path dir) throws IOException {
+        if (!Files.exists(dir)) return;
+
+        try (var walk = Files.walk(dir)) {
+            walk.sorted(Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    Files.deleteIfExists(p);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+        }
+    }
+
+    private static String escapeShellArg(String s) {
+        return "'" + s.replace("'", "'\"'\"'") + "'";
+    }
+
+    private String resolveEffectiveServerVersion(TemplateMeta tm, String versionOverride) throws IOException {
+        if (versionOverride != null && !versionOverride.isBlank()) {
+            return versionOverride.trim();
+        }
+        if (tm != null && tm.serverVersion != null && !tm.serverVersion.isBlank()) {
+            return tm.serverVersion.trim();
+        }
+        throw new IOException("No server version specified (template missing serverVersion and no override was provided)");
+    }
+
+    private int resolveBuildJavaMajor(String templateName, String serverVersion) {
+        String t = templateName.toLowerCase(Locale.ROOT);
+
+        if (t.contains("spigot")) {
+            if (serverVersion == null || serverVersion.isBlank()) return 21;
+
+            if (serverVersion.startsWith("1.8")
+                    || serverVersion.startsWith("1.9")
+                    || serverVersion.startsWith("1.10")
+                    || serverVersion.startsWith("1.11")
+                    || serverVersion.startsWith("1.12")
+                    || serverVersion.startsWith("1.13")
+                    || serverVersion.startsWith("1.14")
+                    || serverVersion.startsWith("1.15")
+                    || serverVersion.startsWith("1.16")) {
+                return 8;
+            }
+
+            if (serverVersion.startsWith("1.17")) {
+                return 16;
+            }
+
+            if (serverVersion.startsWith("1.18")
+                    || serverVersion.startsWith("1.19")
+                    || serverVersion.startsWith("1.20")) {
+                return 17;
+            }
+
+            if (serverVersion.startsWith("1.21")) {
+                return 21;
+            }
+
+            return 21;
+        }
+
+        return 17;
+    }
 
 
     public void start(String instanceName) throws IOException {
@@ -508,5 +682,16 @@ public final class InstanceManager {
         }
 
         return mi.getRecentLogLines();
+    }
+
+    private String resolveServerVersion(TemplateMeta tm) throws IOException {
+        if (tm == null || tm.serverVersion == null || tm.serverVersion.isBlank()) {
+            throw new IOException("Template is missing serverVersion");
+        }
+        return tm.serverVersion.trim();
+    }
+
+    private Path resolveCachedJarPath(String templateName, String version, String jarName) {
+        return buildCache.resolve(templateName).resolve(version).resolve(jarName);
     }
 }

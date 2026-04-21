@@ -4,17 +4,19 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class TemplateMeta {
-
     public String displayName = null;
-    public String jar = null; // if null -> fallback to host default / existing behavior
-    public Readiness readiness = new Readiness();
+    public String jar = null;
 
+    public String buildToolExec = null;
+    public String serverVersion = null;
+
+    public Readiness readiness = new Readiness();
     public Jvm jvm = new Jvm();
     public Pool pool = new Pool();
     public Data data = new Data();
 
     public static final class Jvm {
-        public List<String> args = new ArrayList<>(); // if empty -> fallback to host default
+        public List<String> args = new ArrayList<>();
     }
 
     public static final class Pool {
@@ -26,20 +28,13 @@ public final class TemplateMeta {
     }
 
     public static final class Data {
-        // safe default for existing templates:
-        // if template.json missing, we won't use this anyway.
         public boolean persistent = true;
         public List<String> resetPaths = new ArrayList<>();
     }
 
     public static final class Readiness {
-        // LOG_CONTAINS | TCP_PORT | NONE
         public String type = "LOG_CONTAINS";
-
-        // for LOG_CONTAINS
         public String contains = "Done (";
-
-        // for TCP_PORT
         public String host = "127.0.0.1";
         public long timeoutMs = 20000;
     }

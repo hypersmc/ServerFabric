@@ -19,7 +19,7 @@ public final class HostConsole implements Runnable {
 
     @Override
     public void run() {
-        System.out.println("[ServerFabric-Host] Console ready. Commands: help, list, select <name>, endselection, stop, kill, killinstance <name>");
+        System.out.println("[ServerFabric-Host] Console ready. Commands: help, list, select <name>, endselection, stop, kill, killinstance <name>, create <template> <instance-name>, templates ");
 
         try (BufferedReader br = new BufferedReader(new InputStreamReader(System.in))) {
             String line;
@@ -79,6 +79,38 @@ public final class HostConsole implements Runnable {
                 }
             }
 
+            case "templates", "listtemplates" -> {
+                try {
+                    var list = mgr.listTemplates();
+                    System.out.println("[ServerFabric-Host] Templates:");
+                    for (String t : list) {
+                        System.out.println(" - " + t);
+                    }
+                } catch (Exception e) {
+                    System.out.println("[ServerFabric-Host] Template list failed: " + e.getMessage());
+                }
+            }
+
+            case "create" -> {
+                String[] args = arg.split("\\s+");
+                if (args.length < 2 || args.length > 3) {
+                    System.out.println("[ServerFabric-Host] Usage: create <template> <instance-name> [version]");
+                    return;
+                }
+
+                String template = args[0].trim();
+                String instanceName = args[1].trim();
+                String versionOverride = args.length == 3 ? args[2].trim() : null;
+
+                try {
+                    var res = mgr.createFromTemplate(template, instanceName, versionOverride);
+                    System.out.println("[ServerFabric-Host] Created instance " + res.name() + " on port " + res.port()
+                            + (versionOverride != null ? " using version " + versionOverride : ""));
+                } catch (Exception e) {
+                    System.out.println("[ServerFabric-Host] Create failed: " + e.getMessage());
+                }
+            }
+
             case "select" -> {
                 if (arg.isEmpty()) {
                     System.out.println("[ServerFabric-Host] Usage: select <instance-name>");
@@ -101,7 +133,7 @@ public final class HostConsole implements Runnable {
                 }
             }
 
-            case "stop", "exit", "quit" -> {
+            case "stop", "exit", "quit", "end" -> {
                 System.out.println("[ServerFabric-Host] Stop requested...");
                 requestStopHost.run();
             }
@@ -118,17 +150,19 @@ public final class HostConsole implements Runnable {
     private void printHelp() {
         System.out.println("""
 [ServerFabric-Host] Commands:
-  help                  - show this help
-  list | status          - list known instances and states
-  select <name>          - route console input to a specific instance
-  endselection | end     - leave instance selection mode
-  stop | exit | quit     - stop the host (graceful)
-  killinstance <name>    - Kill a server instance (forcefully)
-  kill                  - exit immediately
+help - show this help
+status - list known instances and states
+templates - list known templates
+create <template> <instance-name> - create a new instance from a template
+select <instance-name> - route console input to a specific instance
+endselection | end - leave instance selection mode
+stop | exit | quit - stop the host (graceful)
+killinstance <instance-name> - kill a server instance (forcefully)
+kill - exit immediately
 
 While selected:
-  <anything>             - forwarded to the instance console (no leading / required)
-  :<hostcmd>             - run a host command (example: :list)
+<text> - forwarded to the instance console
+:<host-command> - run a host command (example: :list)
 """);
     }
 }

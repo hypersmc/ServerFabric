@@ -15,6 +15,7 @@ public final class DynGui implements Listener {
 
     private final DynClientPlugin plugin;
     private CommandInputManager commandInput;
+    private TemplateVersionInputManager templateVersionInput;
 
     private static final String TITLE = "ServerFabric";
     private static final int PAGE_SIZE = 45;
@@ -31,6 +32,7 @@ public final class DynGui implements Listener {
     // per-player cached data
     private final Map<UUID, DynStatus> status = new HashMap<>();
     private final Map<UUID, DynTemplates> templates = new HashMap<>();
+    private final Map<UUID, Map<String, DynInstanceStats>> stats = new HashMap<>();
 
     // per-player UI state
     private final Map<UUID, Integer> page = new HashMap<>();
@@ -44,6 +46,10 @@ public final class DynGui implements Listener {
 
     public void setCommandInput(CommandInputManager mgr) {
         this.commandInput = mgr;
+    }
+
+    public void setTemplateVersionInput(TemplateVersionInputManager mgr) {
+        this.templateVersionInput = mgr;
     }
 
     public void open(Player p) {
@@ -175,11 +181,13 @@ public final class DynGui implements Listener {
         inv.setItem(11, button(Material.REPEATER, "§7Port: §f" + inst.port()));
         inv.setItem(12, button(Material.CLOCK, "§7State: §f" + inst.state()));
 
-        // placeholders for future runtime/stats integration
-        inv.setItem(13, button(Material.NAME_TAG, "§7Uptime: §fSoon"));
-        inv.setItem(14, button(Material.REDSTONE, "§7PID: §fSoon"));
-        inv.setItem(15, button(Material.CHEST, "§7RAM: §fSoon"));
-        inv.setItem(16, button(Material.BARREL, "§7Disk: §fSoon"));
+        // Stats
+        DynInstanceStats s = getInstanceStats(p, inst.name());
+
+        inv.setItem(13, button(Material.NAME_TAG, "§7Uptime: §f" + (s == null ? "Loading..." : formatDuration(s.uptimeMs()))));
+        inv.setItem(14, button(Material.REDSTONE, "§7PID: §f" + (s == null ? "Loading..." : s.pid())));
+        inv.setItem(15, button(Material.CHEST, "§7RAM: §f" + (s == null ? "Loading..." : formatBytes(s.memoryRssBytes()))));
+        inv.setItem(16, button(Material.BARREL, "§7Disk: §f" + (s == null ? "Loading..." : formatBytes(s.diskUsageBytes()))));
 
         // actions
         inv.setItem(28, button(Material.ENDER_PEARL, "§aJoin"));
@@ -217,7 +225,8 @@ public final class DynGui implements Listener {
             meta.setLore(List.of(
                     "§7Host: §f" + item.hostId(),
                     "",
-                    "§aLeft-click: Play (create+start)"
+                    "§aLeft-click: Play (create+start)",
+                    "§eRight-click: Play with version override"
             ));
             it.setItemMeta(meta);
             inv.setItem(i, it);
@@ -328,6 +337,7 @@ public final class DynGui implements Listener {
 
         selectedInstance.put(p.getUniqueId(), inst.name());
         screen.put(p.getUniqueId(), Screen.INSTANCE_DETAILS);
+        plugin.messenger().requestStats(p, inst.name());
         render(p);
     }
 
@@ -347,6 +357,7 @@ public final class DynGui implements Listener {
 
         if (rawSlot == 49) {
             plugin.messenger().requestStatus(p);
+            plugin.messenger().requestStats(p, instanceName);
             p.sendMessage("§7Refreshing instance...");
             return;
         }
@@ -420,6 +431,20 @@ public final class DynGui implements Listener {
         if (e.isLeftClick()) {
             plugin.messenger().sendAction(p, "PLAY_ON", item.hostId(), item.template());
             p.sendMessage("§7Starting §f" + item.template() + "§7 on host §f" + item.hostId() + "§7...");
+            return;
+        }
+
+        if (e.isRightClick()) {
+            if (templateVersionInput == null) {
+                p.sendMessage("§cTemplate version input is not configured.");
+                return;
+            }
+
+            p.closeInventory();
+            templateVersionInput.begin(p.getUniqueId(), item.hostId(), item.template());
+            p.sendMessage("§bEnter a Minecraft version for §f" + item.template() + "§b.");
+            p.sendMessage("§7Type §fdefault§7 to use the template default version.");
+            p.sendMessage("§7Type §fcancel§7 to abort.");
         }
     }
 
@@ -494,6 +519,47 @@ public final class DynGui implements Listener {
             }
         }
         return count;
+    }
+
+    public void setInstanceStats(Player p, DynInstanceStats newStats) {
+        stats.computeIfAbsent(p.getUniqueId(), k -> new HashMap<>())
+                .put(newStats.name(), newStats);
+        render(p);
+    }
+
+    private DynInstanceStats getInstanceStats(Player p, String instanceName) {
+        Map<String, DynInstanceStats> byInstance = stats.get(p.getUniqueId());
+        if (byInstance == null) return null;
+        return byInstance.get(instanceName);
+    }
+
+    private String formatBytes(long bytes) {
+        if (bytes < 0) return "Unknown";
+        double value = bytes;
+        String[] units = {"B", "KB", "MB", "GB", "TB"};
+        int unit = 0;
+        while (value >= 1024 && unit < units.length - 1) {
+            value /= 1024.0;
+            unit++;
+        }
+        return String.format(java.util.Locale.US, "%.1f %s", value, units[unit]);
+    }
+
+    private String formatDuration(long ms) {
+        if (ms < 0) return "Unknown";
+
+        long totalSeconds = ms / 1000;
+        long hours = totalSeconds / 3600;
+        long minutes = (totalSeconds % 3600) / 60;
+        long seconds = totalSeconds % 60;
+
+        if (hours > 0) {
+            return hours + "h " + minutes + "m";
+        }
+        if (minutes > 0) {
+            return minutes + "m " + seconds + "s";
+        }
+        return seconds + "s";
     }
 
     @EventHandler

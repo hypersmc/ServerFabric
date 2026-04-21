@@ -20,19 +20,23 @@ public final class HostClient {
         this.token = token;
     }
 
-    public static final class CreateResponse {
-        public final String name;
-        public final int port;
-        public CreateResponse(String name, int port) { this.name = name; this.port = port; }
-    }
+    public record CreateResponse(String name, int port) {}
+
 
     public CreateResponse create(String template, String name) throws IOException {
-        String json = "{\"template\":\"" + esc(template) + "\",\"name\":\"" + esc(name) + "\"}";
-        String resp = post("/server/create", json);
-        // tiny parse: {"name":"mg-001","port":25571}
-        String rName = extract(resp, "\"name\":\"", "\"");
-        int rPort = Integer.parseInt(extract(resp, "\"port\":", "}").replaceAll("[^0-9]", ""));
-        return new CreateResponse(rName, rPort);
+        return create(template, name, null);
+    }
+
+    public CreateResponse create(String template, String name, String version) throws IOException {
+        String body;
+        if (version == null || version.isBlank()) {
+            body = "{\"template\":\"" + esc(template) + "\",\"name\":\"" + esc(name) + "\"}";
+        } else {
+            body = "{\"template\":\"" + esc(template) + "\",\"name\":\"" + esc(name) + "\",\"version\":\"" + esc(version) + "\"}";
+        }
+
+        String json = post("/server/create", body);
+        return om.readValue(json, CreateResponse.class);
     }
 
     public void start(String name) throws IOException { post("/server/start", "{\"name\":\"" + esc(name) + "\"}"); }
@@ -219,5 +223,24 @@ public final class HostClient {
 
     public void command(String name, String cmd) throws IOException {
         post("/server/command", "{\"name\":\"" + esc(name) + "\",\"cmd\":\"" + esc(cmd) + "\"}");
+    }
+
+    public static final class InstanceStatsResponse {
+        public String name;
+        public String state;
+        public boolean alive;
+        public boolean stopping;
+        public long pid;
+        public long uptimeMs;
+        public long startedAtMs;
+        public long lastOutputAtMs;
+        public long memoryRssBytes;
+        public long memoryVirtualBytes;
+        public long diskUsageBytes;
+    }
+    public InstanceStatsResponse stats(String name) throws IOException {
+        String body = "{\"name\":\"" + esc(name) + "\"}";
+        String json = post("/server/stats", body);
+        return om.readValue(json, InstanceStatsResponse.class);
     }
 }

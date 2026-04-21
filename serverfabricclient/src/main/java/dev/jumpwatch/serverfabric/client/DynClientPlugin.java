@@ -11,6 +11,7 @@ public final class DynClientPlugin extends JavaPlugin {
     private DynGui gui;
     private DynMessenger messenger;
     private CommandInputManager commandInput;
+    private TemplateVersionInputManager templateVersionInput;
 
     @Override
     public void onEnable() {
@@ -23,8 +24,11 @@ public final class DynClientPlugin extends JavaPlugin {
         getServer().getMessenger().registerIncomingPluginChannel(this, "BungeeCord", messenger); // Needed for bungee
         Bukkit.getMessenger().registerIncomingPluginChannel(this, CHANNEL, messenger);
         this.commandInput = new CommandInputManager();
+        this.templateVersionInput = new TemplateVersionInputManager(this);
         Bukkit.getPluginManager().registerEvents(new ChatCommandListener(this, commandInput), this);
+        getServer().getPluginManager().registerEvents(templateVersionInput, this);
         gui.setCommandInput(commandInput);
+        gui.setTemplateVersionInput(templateVersionInput);
         PluginCommand cmd = getCommand("serf");
         if (cmd != null) {
             cmd.setExecutor((sender, command, label, args) -> {

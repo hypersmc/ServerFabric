@@ -40,18 +40,25 @@ public final class DynProxyMessaging implements Listener {
             if ("ACTION".equals(type)) {
                 int protocolVersion = in.readInt();
                 String playerUuid = in.readUTF();
-                String actionType = in.readUTF();   // START/STOP/DELETE/CREATE/PLAY/COMMAND
-                String instance = in.readUTF();     // instance name (or desired name for CREATE)
-                String template = in.readUTF();     // template name OR command payload for COMMAND
+                String actionType = in.readUTF();
+                String instance = in.readUTF();
+                String templateOrCmd = in.readUTF();
+                handleAction(server, playerUuid, actionType, instance, templateOrCmd);
+                return;
+            }
 
-                handleAction(server, playerUuid, actionType, instance, template);
+            if ("STATS_REQUEST".equals(type)) {
+                int protocolVersion = in.readInt();
+                String playerUuid = in.readUTF();
+                String instanceName = in.readUTF();
+
+                handleStatsRequest(server, playerUuid, instanceName);
                 return;
             }
 
             if ("TEMPLATES_REQUEST".equals(type)) {
                 int protocolVersion = in.readInt();
                 String playerUuid = in.readUTF();
-
                 handleTemplatesRequest(server, playerUuid);
                 return;
             }
@@ -172,12 +179,12 @@ public final class DynProxyMessaging implements Listener {
                         var created = h.client().create(templateOrCmd, desired);
 
                         // Register routing to correct machine
-                        plugin.registerServer(created.name, h.connectHost(), created.port);
+                        plugin.registerServer(created.name(), h.connectHost(), created.port());
 
                         // Remember where it lives
-                        hosts.mapInstanceToHost(created.name, h.id());
+                        hosts.mapInstanceToHost(created.name(), h.id());
 
-                        reply(server, playerUuid, true, "Created " + created.name + " on host " + h.id());
+                        reply(server, playerUuid, true, "Created " + created.name() + " on host " + h.id());
                     }
 
                     case "PLAY" -> {
@@ -200,32 +207,38 @@ public final class DynProxyMessaging implements Listener {
 
                         var created = h.client().create(template, name);
 
-                        plugin.registerServer(created.name, h.connectHost(), created.port);
-                        hosts.mapInstanceToHost(created.name, h.id());
+                        plugin.registerServer(created.name(), h.connectHost(), created.port());
+                        hosts.mapInstanceToHost(created.name(), h.id());
 
-                        h.client().start(created.name);
+                        h.client().start(created.name());
 
-                        reply(server, playerUuid, true, "Created+started " + created.name + " on host " + h.id());
+                        reply(server, playerUuid, true, "Created+started " + created.name() + " on host " + h.id());
                     }
 
                     case "PLAY_ON" -> {
                         // instance = hostId, templateOrCmd = templateName
                         String hostId = instance;
                         String template = templateOrCmd;
+                        String versionOverride = null;
+                        if (template != null && template.contains("|")) {
+                            String[] split = template.split("\\|", 2);
+                            template = split[0];
+                            versionOverride = split[1].isBlank() ? null : split[1].trim();
+                        }
 
                         HostRegistry.HostDef h = hosts.getHost(hostId);
                         if (h == null) { reply(server, playerUuid, false, "Unknown host: " + hostId); return; }
 
                         String name = hostId + "-" + template + "-" + (System.currentTimeMillis() % 100000);
 
-                        var created = h.client().create(template, name);
+                        var created = h.client().create(template, name, versionOverride);
 
-                        plugin.registerServer(created.name, h.connectHost(), created.port);
-                        hosts.mapInstanceToHost(created.name, h.id());
+                        plugin.registerServer(created.name(), h.connectHost(), created.port());
+                        hosts.mapInstanceToHost(created.name(), h.id());
 
-                        h.client().start(created.name);
+                        h.client().start(created.name());
 
-                        reply(server, playerUuid, true, "Created+started " + created.name + " on host " + h.id());
+                        reply(server, playerUuid, true, "Created+started " + created.name() + " on host " + h.id());
                     }
 
                     default -> reply(server, playerUuid, false, "Unknown action: " + actionType);
@@ -299,6 +312,50 @@ public final class DynProxyMessaging implements Listener {
                     out.writeUTF(h.id()); // use config host id
                 }
             }
+        }
+        return baos.toByteArray();
+    }
+
+    private void handleStatsRequest(Server server, String playerUuid, String instanceName) {
+        ProxyServer.getInstance().getScheduler().runAsync(plugin, () -> {
+            try {
+                String hostId = hosts.hostIdForInstance(instanceName);
+                if (hostId == null) {
+                    reply(server, playerUuid, false, "No host mapping for instance: " + instanceName);
+                    return;
+                }
+
+                HostRegistry.HostDef h = hosts.getHost(hostId);
+                if (h == null) {
+                    reply(server, playerUuid, false, "Unknown host for instance: " + instanceName);
+                    return;
+                }
+
+                HostClient.InstanceStatsResponse stats = h.client().stats(instanceName);
+                server.getInfo().sendData(CHANNEL, buildStatsResponse(playerUuid, stats), false);
+
+            } catch (Exception e) {
+                reply(server, playerUuid, false, "Stats error: " + e.getMessage());
+            }
+        });
+    }
+
+    private byte[] buildStatsResponse(String playerUuid, HostClient.InstanceStatsResponse stats) throws IOException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(baos)) {
+            out.writeUTF("STATS_RESPONSE");
+            out.writeUTF(playerUuid);
+            out.writeUTF(stats.name == null ? "" : stats.name);
+            out.writeUTF(stats.state == null ? "UNKNOWN" : stats.state);
+            out.writeUTF(String.valueOf(stats.alive));
+            out.writeUTF(String.valueOf(stats.stopping));
+            out.writeUTF(String.valueOf(stats.pid));
+            out.writeUTF(String.valueOf(stats.uptimeMs));
+            out.writeUTF(String.valueOf(stats.startedAtMs));
+            out.writeUTF(String.valueOf(stats.lastOutputAtMs));
+            out.writeUTF(String.valueOf(stats.memoryRssBytes));
+            out.writeUTF(String.valueOf(stats.memoryVirtualBytes));
+            out.writeUTF(String.valueOf(stats.diskUsageBytes));
         }
         return baos.toByteArray();
     }

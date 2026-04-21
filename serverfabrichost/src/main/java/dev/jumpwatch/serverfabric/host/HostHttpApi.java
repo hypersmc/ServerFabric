@@ -23,7 +23,17 @@ public final class HostHttpApi {
             var req = om.readTree(readBody(ex));
             String template = req.path("template").asText("");
             String name = req.path("name").asText("");
-            var res = mgr.createFromTemplate(template, name);
+            String version = req.path("version").asText(null);
+
+            if (version != null && version.isBlank()) {
+                version = null;
+            }
+
+            InstanceManager.CreateResponse res =
+                    (version == null)
+                            ? mgr.createFromTemplate(template, name)
+                            : mgr.createFromTemplate(template, name, version);
+
             writeJson(ex, 200, om.writeValueAsString(res));
         }));
 

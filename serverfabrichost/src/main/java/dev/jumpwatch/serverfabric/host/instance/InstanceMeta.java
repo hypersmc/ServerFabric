@@ -6,7 +6,6 @@ public final class InstanceMeta {
     public int port;
     public String jar;
 
-    // new
     public boolean autoStart = false;
     public String lastState = "STOPPED";
     public long lastUpdated = 0L;
@@ -15,6 +14,7 @@ public final class InstanceMeta {
     public boolean pooled = false;        // derived from template.json pool.enabled
     public boolean persistent = true;     // derived from template.json data.persistent
     public String[] jvmArgs = null;       // resolved args at create time (optional)
+    public String serverVersion = null;
 
     public InstanceMeta() {}
 

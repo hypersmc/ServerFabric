@@ -52,13 +52,13 @@ public final class DynCommand extends Command {
 
                             // register into proxy (main thread)
                             ProxyServer.getInstance().getScheduler().runAsync(plugin, () ->
-                                    plugin.registerServer(created.name, "127.0.0.1", created.port)
+                                    plugin.registerServer(created.name(), "127.0.0.1", created.port())
                             );
 
-                            host.start(created.name);
+                            host.start(created.name());
 
                             // wait for readiness
-                            boolean ready = waitUntilRunning(created.name, 60_000);
+                            boolean ready = waitUntilRunning(created.name(), 60_000);
 
                             if (!ready) {
                                 ProxyServer.getInstance().getScheduler().runAsync(plugin, () ->
@@ -69,12 +69,12 @@ public final class DynCommand extends Command {
 
                             // connect on main thread
                             ProxyServer.getInstance().getScheduler().runAsync(plugin, () -> {
-                                net.md_5.bungee.api.config.ServerInfo info = ProxyServer.getInstance().getServers().get(created.name);
+                                net.md_5.bungee.api.config.ServerInfo info = ProxyServer.getInstance().getServers().get(created.name());
                                 if (info == null) {
                                     player.sendMessage(ChatColor.RED + "Server not registered in proxy.");
                                     return;
                                 }
-                                player.sendMessage(ChatColor.GREEN + "Sending you to " + created.name + "!");
+                                player.sendMessage(ChatColor.GREEN + "Sending you to " + created.name() + "!");
                                 player.connect(info);
                             });
 
@@ -93,9 +93,9 @@ public final class DynCommand extends Command {
                     String name = args[2];
 
                     HostClient.CreateResponse res = host.create(template, name);
-                    plugin.registerServer(res.name, "127.0.0.1", res.port);
+                    plugin.registerServer(res.name(), "127.0.0.1", res.port());
 
-                    sender.sendMessage(ChatColor.GREEN + "Created " + res.name + " on port " + res.port);
+                    sender.sendMessage(ChatColor.GREEN + "Created " + res.name() + " on port " + res.port());
                     break;
                 }
                 case "start": {
