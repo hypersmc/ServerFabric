@@ -130,6 +130,23 @@ public final class DynProxyMessaging implements Listener {
                         reply(server, playerUuid, true, "Starting " + instance);
                     }
 
+                    case "RESTART" -> {
+                        String hostId = hosts.hostIdForInstance(instance);
+                        if (hostId == null) {
+                            reply(server, playerUuid, false, "Unknown host for instance: " + instance);
+                            return;
+                        }
+
+                        HostRegistry.HostDef h = hosts.getHost(hostId);
+                        if (h == null) {
+                            reply(server, playerUuid, false, "Unknown host: " + hostId);
+                            return;
+                        }
+
+                        h.client().restart(instance);
+                        reply(server, playerUuid, true, "Restart requested for " + instance);
+                    }
+
                     case "STOP" -> {
                         HostRegistry.HostDef h = hostForExistingInstance(instance);
                         if (h == null) { reply(server, playerUuid, false, "Unknown host for " + instance); return; }

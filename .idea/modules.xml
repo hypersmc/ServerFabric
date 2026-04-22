@@ -4,6 +4,8 @@
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/modules/dynclient/serverfabric.dynclient.main.iml" filepath="$PROJECT_DIR$/.idea/modules/dynclient/serverfabric.dynclient.main.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/modules/dynproxy/serverfabric.dynproxy.main.iml" filepath="$PROJECT_DIR$/.idea/modules/dynproxy/serverfabric.dynproxy.main.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/serverfabricapi/serverfabric.serverfabricapi.main.iml" filepath="$PROJECT_DIR$/.idea/modules/serverfabricapi/serverfabric.serverfabricapi.main.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/serverfabricapiexample/serverfabric.serverfabricapiexample.main.iml" filepath="$PROJECT_DIR$/.idea/modules/serverfabricapiexample/serverfabric.serverfabricapiexample.main.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/modules/serverfabricclient/serverfabric.serverfabricclient.main.iml" filepath="$PROJECT_DIR$/.idea/modules/serverfabricclient/serverfabric.serverfabricclient.main.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/modules/serverfabricproxy/serverfabric.serverfabricproxy.main.iml" filepath="$PROJECT_DIR$/.idea/modules/serverfabricproxy/serverfabric.serverfabricproxy.main.iml" />
     </modules>

@@ -42,6 +42,11 @@ public final class HostHttpApi {
             mgr.start(req.path("name").asText(""));
             writeJson(ex, 200, "{\"ok\":true}");
         }));
+        server.createContext("/server/restart", ex -> handleAuthed(ex, () -> {
+            var req = om.readTree(readBody(ex));
+            mgr.restart(req.path("name").asText(""));
+            writeJson(ex, 200, "{\"ok\":true}");
+        }));
 
         server.createContext("/server/stop", ex -> handleAuthed(ex, () -> {
             var req = om.readTree(readBody(ex));

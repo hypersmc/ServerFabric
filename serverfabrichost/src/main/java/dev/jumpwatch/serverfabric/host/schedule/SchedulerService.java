@@ -118,7 +118,6 @@ public final class SchedulerService {
             var execTime = com.cronutils.model.time.ExecutionTime.forCron(cron);
 
             // If we've never run before: treat "missed" as false (don't run on first boot)
-            // Change to true if you want "run immediately on first ever boot".
             if (lastRunMs <= 0) return false;
 
             ZonedDateTime last = ZonedDateTime.ofInstant(new Date(lastRunMs).toInstant(), zone);
@@ -159,7 +158,6 @@ public final class SchedulerService {
 
     private void runTaskNow(ScheduleConfig cfg, ScheduleConfig.Task t) throws Exception {
         // Execute in current thread for catch-up; actions are sequential.
-        // If you want catch-up async, wrap in a thread pool, but RUN_ONCE is usually fine.
         ScheduleExecutor.execute(mgr, t);
     }
 

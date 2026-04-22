@@ -3,11 +3,16 @@ package dev.jumpwatch.serverfabric.host.instance;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
 public final class InstanceStatsService {
 
+    private static final long DISK_CACHE_TTL_MS = 30_000L; // 30 seconds
+
     private final InstanceStore store;
+    private final Map<String, DiskCacheEntry> diskCache = new ConcurrentHashMap<>();
 
     public InstanceStatsService(InstanceStore store) {
         this.store = store;
@@ -31,7 +36,7 @@ public final class InstanceStatsService {
         }
 
         Path dir = store.dir(instanceName);
-        long disk = Files.isDirectory(dir) ? calculateDiskUsage(dir) : -1L;
+        long disk = Files.isDirectory(dir) ? getCachedDiskUsage(instanceName, dir) : -1L;
 
         long uptimeMs = 0L;
         if (snap.startedAtMs() > 0) {
@@ -51,6 +56,30 @@ public final class InstanceStatsService {
                 vmem,
                 disk
         );
+    }
+
+    public void invalidateDiskCache(String instanceName) {
+        if (instanceName == null || instanceName.isBlank()) {
+            return;
+        }
+        diskCache.remove(instanceName);
+    }
+
+    public void clearDiskCache() {
+        diskCache.clear();
+    }
+
+    private long getCachedDiskUsage(String instanceName, Path root) {
+        long now = System.currentTimeMillis();
+
+        DiskCacheEntry cached = diskCache.get(instanceName);
+        if (cached != null && (now - cached.cachedAtMs()) < DISK_CACHE_TTL_MS) {
+            return cached.bytes();
+        }
+
+        long disk = calculateDiskUsage(root);
+        diskCache.put(instanceName, new DiskCacheEntry(disk, now));
+        return disk;
     }
 
     private long[] readLinuxMemoryStats(long pid) {
@@ -105,4 +134,6 @@ public final class InstanceStatsService {
             return -1L;
         }
     }
+
+    private record DiskCacheEntry(long bytes, long cachedAtMs) {}
 }

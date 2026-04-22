@@ -1,5 +1,7 @@
 package dev.jumpwatch.serverfabric.proxy;
 
+import dev.jumpwatch.serverfabric.api.SFabric;
+import dev.jumpwatch.serverfabric.proxy.api.SFabricApiImpl;
 import net.md_5.bungee.api.ProxyServer;
 import net.md_5.bungee.api.plugin.Plugin;
 import net.md_5.bungee.config.Configuration;
@@ -40,9 +42,17 @@ public final class DynProxyPlugin extends Plugin {
         this.poller = new DynHostPoller(this, hosts);
         poller.start(pollSeconds);
 
+        SFabric.set(new SFabricApiImpl(hosts));
+        getLogger().info("SFabricAPI registered.");
+
         getLogger().info("Host polling enabled: every " + pollSeconds + "s");
 
         getLogger().info("ServerFabric-Proxy enabled with " + hosts.allHosts().size() + " host(s)");
+    }
+
+    @Override
+    public void onDisable() {
+        SFabric.clear();
     }
 
     public HostRegistry hostRegistry() {

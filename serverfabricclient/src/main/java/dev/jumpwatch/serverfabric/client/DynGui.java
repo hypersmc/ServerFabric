@@ -8,6 +8,7 @@ import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.inventory.*;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.*;
 
@@ -16,6 +17,10 @@ public final class DynGui implements Listener {
     private final DynClientPlugin plugin;
     private CommandInputManager commandInput;
     private TemplateVersionInputManager templateVersionInput;
+    private final Map<UUID, BukkitRunnable> activePollers = new HashMap<>();
+    private final Map<UUID, Map<String, String>> pendingWatches = new HashMap<>();
+    private final Map<UUID, BukkitRunnable> detailRefreshTasks = new HashMap<>();
+    private static final long DETAIL_REFRESH_PERIOD_TICKS = 20L * 10L; // 10 seconds
 
     private static final String TITLE = "ServerFabric";
     private static final int PAGE_SIZE = 45;
@@ -63,6 +68,23 @@ public final class DynGui implements Listener {
 
     public void setStatus(Player p, DynStatus newStatus) {
         status.put(p.getUniqueId(), newStatus);
+
+        Map<String, String> watches = pendingWatches.get(p.getUniqueId());
+        if (watches != null && !watches.isEmpty()) {
+            List<String> completed = new ArrayList<>();
+
+            for (DynStatus.Instance inst : newStatus.instances()) {
+                String expected = watches.get(inst.name());
+                if (expected != null && inst.state().equalsIgnoreCase(expected)) {
+                    completed.add(inst.name());
+                }
+            }
+
+            for (String instanceName : completed) {
+                clearWatch(p.getUniqueId(), instanceName);
+            }
+        }
+
         render(p);
     }
 
@@ -327,17 +349,20 @@ public final class DynGui implements Listener {
             if ("RUNNING".equals(s) || "STARTING".equals(s) || "STOPPING".equals(s)) {
                 plugin.messenger().sendAction(p, "STOP", inst.name(), "");
                 p.sendMessage("§7Stopping " + inst.name() + "...");
+                startWatch(p, inst.name(), "STOPPED");
             } else {
                 plugin.messenger().sendAction(p, "START", inst.name(), "");
                 p.sendMessage("§7Starting " + inst.name() + "...");
-                new StartWatchTask(plugin, p, inst.name()).runTaskLater(plugin, 10L);
+                startWatch(p, inst.name(), "RUNNING");
             }
             return;
         }
 
         selectedInstance.put(p.getUniqueId(), inst.name());
         screen.put(p.getUniqueId(), Screen.INSTANCE_DETAILS);
+        plugin.messenger().requestStatus(p);
         plugin.messenger().requestStats(p, inst.name());
+        ensureDetailRefreshRunning(p);
         render(p);
     }
 
@@ -350,6 +375,7 @@ public final class DynGui implements Listener {
         }
 
         if (rawSlot == 45) {
+            cancelDetailRefresh(p.getUniqueId());
             screen.put(p.getUniqueId(), Screen.INSTANCES);
             render(p);
             return;
@@ -367,20 +393,22 @@ public final class DynGui implements Listener {
             case 29 -> {
                 plugin.messenger().sendAction(p, "START", instanceName, "");
                 p.sendMessage("§7Starting " + instanceName + "...");
-                new StartWatchTask(plugin, p, instanceName).runTaskLater(plugin, 10L);
+                startWatch(p, instanceName, "RUNNING");
             }
             case 30 -> {
                 plugin.messenger().sendAction(p, "STOP", instanceName, "");
                 p.sendMessage("§7Stopping " + instanceName + "...");
+                startWatch(p, instanceName, "STOPPED");
             }
             case 31 -> {
-                plugin.messenger().sendAction(p, "STOP", instanceName, "");
+                plugin.messenger().sendAction(p, "RESTART", instanceName, "");
                 p.sendMessage("§7Restarting " + instanceName + "...");
-                new StartWatchTask(plugin, p, instanceName).runTaskLater(plugin, 40L);
+                startWatch(p, instanceName, "RUNNING");
             }
             case 32 -> {
                 pendingAction.put(p.getUniqueId(), new PendingAction("KILL", instanceName));
                 screen.put(p.getUniqueId(), Screen.CONFIRM_ACTION);
+                startWatch(p, instanceName, "STOPPED");
                 render(p);
             }
             case 33 -> {
@@ -397,6 +425,7 @@ public final class DynGui implements Listener {
     }
 
     private void handleTemplatesClick(Player p, int rawSlot, InventoryClickEvent e) {
+        cancelDetailRefresh(p.getUniqueId());
         if (rawSlot == 49) {
             plugin.messenger().requestTemplates(p);
             p.sendMessage("§7Refreshing templates...");
@@ -501,7 +530,7 @@ public final class DynGui implements Listener {
         return it;
     }
 
-    private DynStatus.Instance findInstance(Player p, String instanceName) {
+    DynStatus.Instance findInstance(Player p, String instanceName) {
         DynStatus st = status.getOrDefault(p.getUniqueId(), new DynStatus(List.of()));
         for (DynStatus.Instance inst : st.instances()) {
             if (inst.name().equalsIgnoreCase(instanceName)) {
@@ -562,10 +591,140 @@ public final class DynGui implements Listener {
         return seconds + "s";
     }
 
+    public void startWatch(Player p, String instanceName, String expectedState) {
+        pendingWatches
+                .computeIfAbsent(p.getUniqueId(), k -> new HashMap<>())
+                .put(instanceName, expectedState);
+
+        ensurePollerRunning(p);
+    }
+
+    private void ensurePollerRunning(Player p) {
+        UUID playerId = p.getUniqueId();
+
+        if (activePollers.containsKey(playerId)) {
+            return;
+        }
+
+        BukkitRunnable poller = new BukkitRunnable() {
+            private final long startedAtMs = System.currentTimeMillis();
+
+            @Override
+            public void run() {
+                if (!p.isOnline()) {
+                    clearAllWatches(playerId);
+                    cancel();
+                    return;
+                }
+
+                Map<String, String> watches = pendingWatches.get(playerId);
+                if (watches == null || watches.isEmpty()) {
+                    activePollers.remove(playerId);
+                    cancel();
+                    return;
+                }
+
+                long elapsed = System.currentTimeMillis() - startedAtMs;
+                if (elapsed > 25_000) {
+                    p.sendMessage("§cTimed out waiting for instance state updates.");
+                    clearAllWatches(playerId);
+                    activePollers.remove(playerId);
+                    cancel();
+                    return;
+                }
+
+                plugin.messenger().requestStatus(p);
+            }
+        };
+
+        activePollers.put(playerId, poller);
+        poller.runTaskTimer(plugin, 10L, 20L);
+    }
+
+    public void clearWatch(UUID playerId, String instanceName) {
+        Map<String, String> watches = pendingWatches.get(playerId);
+        if (watches == null) return;
+
+        watches.remove(instanceName);
+
+        if (watches.isEmpty()) {
+            pendingWatches.remove(playerId);
+
+            BukkitRunnable poller = activePollers.remove(playerId);
+            if (poller != null) {
+                poller.cancel();
+            }
+        }
+    }
+
+    public void clearAllWatches(UUID playerId) {
+        pendingWatches.remove(playerId);
+
+        BukkitRunnable poller = activePollers.remove(playerId);
+        if (poller != null) {
+            poller.cancel();
+        }
+    }
+
+
+    private void ensureDetailRefreshRunning(Player p) {
+        UUID playerId = p.getUniqueId();
+
+        if (detailRefreshTasks.containsKey(playerId)) {
+            return;
+        }
+
+        BukkitRunnable task = new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (!p.isOnline()) {
+                    cancelDetailRefresh(playerId);
+                    cancel();
+                    return;
+                }
+
+                if (screen.getOrDefault(playerId, Screen.INSTANCES) != Screen.INSTANCE_DETAILS) {
+                    cancelDetailRefresh(playerId);
+                    cancel();
+                    return;
+                }
+
+                if (!p.getOpenInventory().getTitle().equals(TITLE)) {
+                    cancelDetailRefresh(playerId);
+                    cancel();
+                    return;
+                }
+
+                String instanceName = selectedInstance.get(playerId);
+                if (instanceName == null || instanceName.isBlank()) {
+                    cancelDetailRefresh(playerId);
+                    cancel();
+                    return;
+                }
+
+                plugin.messenger().requestStatus(p);
+                plugin.messenger().requestStats(p, instanceName);
+            }
+        };
+
+        detailRefreshTasks.put(playerId, task);
+        task.runTaskTimer(plugin, DETAIL_REFRESH_PERIOD_TICKS, DETAIL_REFRESH_PERIOD_TICKS);
+    }
+
+    private void cancelDetailRefresh(UUID playerId) {
+        BukkitRunnable task = detailRefreshTasks.remove(playerId);
+        if (task != null) {
+            task.cancel();
+        }
+    }
+
+
     @EventHandler
     public void onClose(InventoryCloseEvent e) {
         if (!(e.getPlayer() instanceof Player p)) return;
         if (!TITLE.equals(e.getView().getTitle())) return;
-        // keep state for now; clear later if you want stricter cleanup
+        clearAllWatches(p.getUniqueId());
+        cancelDetailRefresh(p.getUniqueId());
+        // keep state for now;
     }
 }

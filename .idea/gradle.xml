@@ -8,6 +8,8 @@
         <option name="modules">
           <set>
             <option value="$PROJECT_DIR$" />
+            <option value="$PROJECT_DIR$/serverfabricapi" />
+            <option value="$PROJECT_DIR$/serverfabricapiexample" />
             <option value="$PROJECT_DIR$/serverfabricclient" />
             <option value="$PROJECT_DIR$/serverfabrichost" />
             <option value="$PROJECT_DIR$/serverfabricproxy" />

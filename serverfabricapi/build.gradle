@@ -1,0 +1,23 @@
+plugins {
+    id "java-library"
+}
+
+group = "dev.jumpwatch.serverfabric"
+version = "0.1.0"
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven { url "https://repo.spongepowered.org/maven" }
+    maven { url "https://oss.sonatype.org/content/repositories/snapshots" }
+}
+
+
+dependencies {
+    compileOnly "net.md-5:bungeecord-api:1.20-R0.1-SNAPSHOT"
+}

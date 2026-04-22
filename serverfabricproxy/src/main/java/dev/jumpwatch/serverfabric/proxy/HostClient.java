@@ -42,6 +42,7 @@ public final class HostClient {
     public void start(String name) throws IOException { post("/server/start", "{\"name\":\"" + esc(name) + "\"}"); }
     public void stop(String name) throws IOException  { post("/server/stop",  "{\"name\":\"" + esc(name) + "\"}"); }
     public void delete(String name) throws IOException{ post("/server/delete","{\"name\":\"" + esc(name) + "\"}"); }
+    public void restart(String name) throws IOException { String body = "{\"name\":\"" + esc(name) + "\"}"; post("/server/restart", body); }
     public void kill(String name) throws IOException { post("/server/kill", "{\"name\":\"" + esc(name) + "\"}" );  }
     public HostVersionInfo version() throws IOException {
         String json = get("/version");

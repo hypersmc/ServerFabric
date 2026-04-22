@@ -9,6 +9,9 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 
 public final class InstanceManager {
 
@@ -22,6 +25,9 @@ public final class InstanceManager {
     public record CreateResponse(String name, int port) {}
     public record StatusItem(String name, int port, String state) {}
     public record StatusResponse(String hostId, List<StatusItem> instances) {}
+
+    private final Map<String, ScheduledFuture<?>> stopTimeouts = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
     private final HostConfig cfg;
     private final Path root;
@@ -365,10 +371,35 @@ public final class InstanceManager {
 
             mi.start();
             live.put(instanceName, mi);
+            statsService.invalidateDiskCache(instanceName);
         });
     }
 
+    public void restart(String instanceName) throws IOException {
+        stop(instanceName);
 
+        Thread t = new Thread(() -> {
+            long deadline = System.currentTimeMillis() + 30000;
+            while (System.currentTimeMillis() < deadline) {
+                try {
+                    ManagedInstance mi = live.get(instanceName);
+                    if (mi == null || !mi.isAlive()) {
+                        start(instanceName);
+                        return;
+                    }
+                    Thread.sleep(500);
+                } catch (Exception e) {
+                    System.out.println("[ServerFabric-Host] Restart failed for " + instanceName + ": " + e.getMessage());
+                    return;
+                }
+            }
+
+            System.out.println("[ServerFabric-Host] Restart timeout waiting for stop: " + instanceName);
+        }, "ServerFabric-Host-restart-" + instanceName);
+
+        t.setDaemon(true);
+        t.start();
+    }
 
 
     public void stop(String instanceName) throws IOException {
@@ -394,7 +425,7 @@ public final class InstanceManager {
             }
 
             mi.stopGraceful();
-            scheduleForceKillIfStillRunning(instanceName, STOP_FORCE_TIMEOUT_MS);
+            scheduleForceKillIfStillRunning(instanceName, mi, STOP_FORCE_TIMEOUT_MS);
         });
     }
 
@@ -417,7 +448,7 @@ public final class InstanceManager {
             } catch (Exception e) {
                 System.out.println("[ServerFabric-Host] Could not read instance meta before delete for " + instanceName + ": " + e.getMessage());
             }
-
+            statsService.invalidateDiskCache(instanceName);
             store.deleteInstanceDir(dir);
             live.remove(instanceName);
 
@@ -613,7 +644,7 @@ public final class InstanceManager {
         }
     }
 
-    private void scheduleForceKillIfStillRunning(String instanceName, long delayMs) {
+    private void scheduleForceKillIfStillRunning(String instanceName, ManagedInstance originalInstance, long delayMs) {
         Thread t = new Thread(() -> {
             try {
                 Thread.sleep(delayMs);
@@ -623,13 +654,22 @@ public final class InstanceManager {
 
             try {
                 actionGuard.withLock(instanceName, () -> {
-                    ManagedInstance mi = live.get(instanceName);
-                    if (mi == null || !mi.isAlive()) {
+                    ManagedInstance current = live.get(instanceName);
+
+                    if (current == null) {
+                        return;
+                    }
+
+                    if (current != originalInstance) {
+                        return;
+                    }
+
+                    if (!current.isAlive()) {
                         return;
                     }
 
                     System.out.println("[ServerFabric-Host] Stop timeout reached for " + instanceName + ", force killing...");
-                    mi.stopForcefully();
+                    current.stopForcefully();
                 });
             } catch (Exception e) {
                 System.out.println("[ServerFabric-Host] Force-kill escalation failed for " + instanceName + ": " + e.getMessage());
@@ -684,7 +724,14 @@ public final class InstanceManager {
         return mi.getRecentLogLines();
     }
 
-    private String resolveServerVersion(TemplateMeta tm) throws IOException {
+    private void cancelStopTimeout(String instanceName) {
+        ScheduledFuture<?> future = stopTimeouts.remove(instanceName);
+        if (future != null) {
+            future.cancel(false);
+        }
+    }
+
+    private String resolveServerVersion(TemplateMeta tm) throws IOException { // Unused, do we still need?
         if (tm == null || tm.serverVersion == null || tm.serverVersion.isBlank()) {
             throw new IOException("Template is missing serverVersion");
         }

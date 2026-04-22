@@ -1,0 +1,6 @@
+name: SFabricExample
+main: dev.jumpwatch.serverfabric.example.SFabricExamplePlugin
+version: 0.1.0
+author: JumpWatch
+depends:
+  - ServerFabric-Proxy
