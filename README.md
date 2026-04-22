@@ -1,60 +1,117 @@
 # ServerFabric
 
-ServerFabric is a SubServers-inspired orchestration system for BungeeCord networks.
+ServerFabric is a SubServers-inspired orchestration system for BungeeCord-style networks.
 
-It splits responsibilities into three small parts:
+It splits responsibility into small focused parts:
 
-- **ServerFabric-Host** (standalone Java app): runs on a machine and manages Minecraft server instances (create/start/stop/delete/command).
-- **ServerFabric-Proxy** (BungeeCord plugin): connects to one or more ServerFabric-Host nodes, registers instances into the proxy, and routes actions to the correct host. Proxies can restart without restarting servers.
-- **ServerFabric-Client** (Paper/Spigot plugin): provides an in-game inventory GUI (SubServers-style) for managing instances and templates.
+- **ServerFabric-Host** — standalone Java app that manages server instances on a machine
+- **ServerFabric-Proxy** — proxy plugin that talks to one or more hosts, registers/routes instances, and exposes the public API
+- **ServerFabric-Client** — Paper/Spigot plugin with an in-game GUI for viewing and controlling instances
+- **SFabricAPI** — public API module for developers who want to build plugins against ServerFabric without touching raw HTTP or internal proxy code
 
-The goal is to keep the system lightweight, understandable, and fun to extend, while still supporting multi-host networks.
+The goal is to keep the system practical, understandable, and pleasant to extend, while still supporting real multi-host networks.
 
 ---
 
 ## Features
 
 ### Core
-- Multi-host support (proxy config lists multiple hosts)
-- Proxy reboot-safe: restarting the proxy does **not** restart running servers
+- Multi-host support
+- Proxy-safe restarts: restarting the proxy does **not** restart running instances
 - Host-side instance persistence (`instance.json` per instance)
-- Host crash recovery: instances marked for autostart come back on ServerFabric-Host reboot
-- Periodic polling: proxy discovers new instances when hosts come online later
+- Host reboot recovery for instances marked to auto-start
+- Instance state tracking
+- Proxy polling and host/instance remapping
+- Runtime stats support for instances
+- Version-aware template creation
+- Build cache for generated server jars
+- First-boot bootstrap for config, folders, and default templates
 
-### In-game GUI (ServerFabric-Client)
-- Instances view: see instances + hostId + state
-- Start/Stop instances
-- Join instances (Bungee connect)
-- Send server console commands (chat capture, SubServers-style)
-- Templates view: list templates per host and “Play” (create+start) on a selected host
+### Host
+- Create / start / stop / restart / kill / delete instances
+- Send console commands to instances
+- Runtime info and recent logs
+- `/server/stats` for uptime, PID, RAM, VMEM, disk usage
+- Internal JDK download/cache for builds
+- Build log output written to file instead of flooding console
+- Cleanup of temporary build directories after successful builds
+- Default template generation on first boot
+
+### Templates / Builds
+- Template metadata via `template.json`
+- Template default Minecraft version
+- Optional version override during creation
+- Build-driven templates via `buildToolExec`
+- Host-level build cache so the same version is not rebuilt repeatedly
+- Internal managed JDKs for build steps so builds do not depend on whatever Java happens to be installed on the host
+
+### In-game GUI
+- Instances view
+- Templates view
+- Instance details view
+- Start / stop / restart / kill
+- Join instances
+- Send server console commands
+- Instance stats in the GUI:
+    - uptime
+    - PID
+    - RAM
+    - disk usage
+- Template quick-play and version-aware creation flow
+
+### Developer API
+- `SFabricAPI` exposed by the proxy
+- Query hosts, instances, templates, and stats
+- Start / stop / restart / kill / command instances
+- Create instances through the API without talking to the host HTTP layer directly
 
 ---
 
 ## Architecture Overview
 
-**ServerFabric-Client (Paper GUI)**  
+**ServerFabric-Client**  
 → sends plugin messages on `serverfabric:main`  
-→ **ServerFabric-Proxy** receives and forwards to the correct host  
-→ **ServerFabric-Host** does the actual filesystem/process work
+→ **ServerFabric-Proxy** receives and routes requests  
+→ **ServerFabric-Host** performs the actual filesystem / process / build work
 
-ServerFabric-Host is the “resource owner” (the thing that actually runs processes). ServerFabric-Proxy is the controller/router and can be restarted independently.
+ServerFabric-Host is the resource owner.  
+ServerFabric-Proxy is the controller/router.  
+The proxy can restart independently of running instances.
 
 ---
 
 ## Requirements
 
-- Java 17+ for Paper (ServerFabric-Client)
-- Java 17+ recommended for ServerFabric-Host (can also run on newer)
+### Current runtime
+- Java 21 for current ServerFabric builds
 - BungeeCord / Waterfall / compatible proxy for ServerFabric-Proxy
-- Paper/Spigot server(s) for ServerFabric-Client GUI
+- Paper / Spigot / Purpur for ServerFabric-Client
+
+### Notes
+- ServerFabric can build older server versions using internally managed build JDKs
+- This means the host does **not** rely on the system Java version for build steps
 
 ---
 
 ## Quick Start
 
-### 1) Run ServerFabric-Host (on each node)
+## 1) Run ServerFabric-Host
 
-Create a config file, e.g. `dyn/config.properties`:
+You can simply run:
+
+```bash
+java -jar ServerFabricHost.jar
+```
+
+On first boot, ServerFabric-Host will create its default config and folder structure automatically if missing.
+
+Default config path:
+
+```text
+dyn/config.properties
+```
+
+Example config:
 
 ```properties
 bindHost=127.0.0.1
@@ -70,25 +127,35 @@ portMax=25650
 
 javaCmd=java
 jvmArgs=-Xms512M,-Xmx1024M
-
 ```
 
-Run ServerFabric-Host:
+You can also use:
+
+```bash
+java -jar ServerFabricHost.jar --config path/to/config.properties
 ```
-java -jar ServerFabricHost.jar
-```
-Use `--config path/to/config.properties` to use another path
 
 ServerFabric-Host stores data under:
 
-* rootPath/templates/
-* rootPath/instances/
+```text
+rootPath/templates/
+rootPath/instances/
+rootPath/build-cache/
+rootPath/tools-cache/
+```
 
-NOTE: Templates do **not** include the server jar by default. Add paper.jar or server.jar into the template folder you want to use.
+### First boot bootstrap
+On first boot, ServerFabric-Host can create:
+- config file
+- root directories
+- default example templates
 
-##
-### 2) Install ServerFabric-Proxy (Proxy plugin)
-`plugins/ServerFabric-Proxy/config.yml`:
+---
+
+## 2) Install ServerFabric-Proxy
+
+Example `plugins/ServerFabric-Proxy/config.yml`:
+
 ```yaml
 token: "CHANGE_ME_TOKEN"
 pollIntervalSeconds: 5
@@ -102,72 +169,306 @@ hosts:
     baseUrl: "http://10.0.0.22:8085"
     connectHost: "10.0.0.22"
 ```
-Start the proxy. On boot, ServerFabric-Proxy will:
-* query every configured host `/status`
-* register instances into Bungee
-* build instance → host routing map
-* keep polling for new/removed instances
 
+On startup, ServerFabric-Proxy will:
+- query configured hosts
+- register known instances into the proxy
+- build instance → host routing
+- keep polling for changes
 
-##
-### 3) Install ServerFabric-Client (Spigot/Paper GUI Plugin)
-Install `ServerFabricClient.jar` on a paper/Spigot (typically your lobby).
-<br>If you want newly-created servers to have the GUI too, include ServerFabric-Client in your template:
+---
 
-```templates/<templateName>/plugins/ServerFabricClient.jar```
+## 3) Install ServerFabric-Client
+
+Install `ServerFabricClient.jar` on a Paper/Spigot/Purpur server, typically your lobby.
+
+If you want created servers to include the GUI plugin too, include it in your template:
+
+```text
+templates/<templateName>/plugins/ServerFabricClient.jar
+```
 
 In-game command:
-* `/serf` Opens the GUI
 
-Permissions:
-* `serf.gui` (defaults to OP)
+```text
+/serf
+```
+
+Permission:
+
+```text
+serf.gui
+```
+
+---
+
+## Templates
+
+Templates live under:
+
+```text
+templates/<templateName>/
+```
+
+Each template may include a `template.json`.
+
+Example:
+
+```json
+{
+  "displayName": "Spigot template",
+  "buildToolExec": "bash build.sh",
+  "serverVersion": "1.21.1",
+  "jar": "server.jar",
+  "readiness": {
+    "type": "LOG_CONTAINS",
+    "contains": "Done ("
+  },
+  "jvm": {
+    "args": ["-Xms1G", "-Xmx2G"]
+  },
+  "pool": {
+    "enabled": false
+  },
+  "data": {
+    "persistent": true
+  }
+}
+```
+
+### Notes
+- `serverVersion` is the default version for the template
+- `buildToolExec` is used when the jar is not already present
+- built jars are cached under `build-cache/`
+- the same version should only need to be built once
+
+---
+
+## Build Cache
+
+ServerFabric caches built jars per template and version.
+
+Example layout:
+
+```text
+build-cache/
+  spigot/
+    1.21.1/
+      server.jar
+      buildlog.txt
+```
+
+This means:
+- first build for a version does the expensive work
+- later creations of the same version reuse the cached jar
+
+---
+
+## Internal JDK Cache
+
+For build-driven templates, ServerFabric uses internally managed JDKs instead of depending on the host system Java.
+
+Example layout:
+
+```text
+tools-cache/
+  jdks/
+    temurin-8/
+    temurin-16/
+    temurin-17/
+    temurin-21/
+```
+
+This avoids issues where:
+- host Java is too new for an old BuildTools target
+- host Java is too old for a newer build target
+
 ---
 
 ## Instance States
 
-ServerFabric-Host tracks process + readiness state:
-* `STOPPED`
-* `STARTING`
-* `RUNNING` (when log contains `Done (ss.msms s)! For help, type "help"`)
-* `CRASHED`
+ServerFabric tracks both process state and readiness-related state.
 
-ServerFabric-Host persists `autoStart` intent:
-* servers that were running will auto-start again after ServerFabric-Host reboot
-* servers that were intentionally stopped will stay stopped
+Common states include:
+
+- `STOPPED`
+- `STARTING`
+- `RUNNING`
+- `STOPPING`
+- `START_TIMEOUT`
+- `CRASHED`
+- `BROKEN`
+
+`autoStart` intent is persisted:
+- instances that were running can come back after host reboot
+- intentionally stopped instances stay stopped
+
+---
+
+## Host HTTP API
+
+ServerFabric-Host exposes a token-protected HTTP API for the proxy.
+
+Important routes include:
+
+- `/server/create`
+- `/server/start`
+- `/server/stop`
+- `/server/restart`
+- `/server/kill`
+- `/server/delete`
+- `/server/command`
+- `/server/runtime`
+- `/server/logs`
+- `/server/stats`
+- `/templates`
+- `/status`
+- `/version`
+
+This HTTP API is intended for ServerFabric itself.  
+Plugin developers should use `SFabricAPI` instead of calling the host directly.
+
+---
+
+## SFabricAPI
+
+`SFabricAPI` is the public integration layer for developers.
+
+It is intended to prevent external plugins from:
+- calling raw host HTTP
+- depending on proxy internals
+- parsing private message formats
+
+### What it exposes
+- query instances
+- query hosts
+- query templates
+- query instance stats
+- create instances
+- start / stop / restart / kill
+- send commands
+
+### Runtime model
+- `serverfabricapi` is the API module
+- `ServerFabricProxy` provides the runtime implementation
+
+### Recommended usage
+Other plugins should depend on:
+- `serverfabricapi` at compile time
+- `ServerFabricProxy` at runtime
+
+---
+
+## Building
+
+ServerFabric is a multi-module Gradle project.
+
+Typical modules:
+
+- `serverfabrichost`
+- `serverfabricproxy`
+- `serverfabricclient`
+- `serverfabricapi`
+
+Examples:
+
+```bash
+./gradlew :serverfabrichost:shadowJar
+./gradlew :serverfabricproxy:shadowJar
+./gradlew :serverfabricclient:shadowJar
+./gradlew :serverfabricapi:build
+```
+
+---
+
+## Publishing / Using SFabricAPI
+
+### For plugin developers
+`serverfabricapi` is the compile-time dependency.
+
+Use `compileOnly`, not shaded/relocated copies.
+
+### Gradle example
+```gradle
+repositories {
+    mavenCentral()
+    maven {
+        url = uri("https://maven.pkg.github.com/hypersmc/serverfabric")
+        credentials {
+            username = project.findProperty("gprUser") ?: System.getenv("GITHUB_ACTOR")
+            password = project.findProperty("gprKey") ?: System.getenv("GITHUB_TOKEN")
+        }
+    }
+}
+
+dependencies {
+    compileOnly "dev.jumpwatch.serverfabric:serverfabricapi:0.1.0"
+}
+```
+
+### Important
+At runtime, the proxy provides the API implementation.
+
 ---
 
 ## Security Notes
-* ServerFabric-Host exposes an HTTP API secured by a bearer token.
-* For local networks, bind ServerFabric-Host to `127.0.0.1` or internal LAN IPs
-* Do **not** expose ServerFabric-Host ports to the public internet without additional protections (firewalls / reverse proxy / TLS).
+
+- ServerFabric-Host exposes an HTTP API secured by bearer token
+- Bind the host to localhost or internal LAN IPs where possible
+- Do **not** expose host ports directly to the public internet without proper protections
+- Treat tokens as secrets
+- Do not hardcode publish credentials into source control
+
 ---
 
-## Development / Building
-This project is a multi-module Gradle setup (ServerFabric-Host / ServerFabric-Proxy / ServerFabric-Client).
+## Current Direction
 
-Typical flow:
+ServerFabric is currently focused on:
+- reliable host behavior
+- version-aware templates
+- build caching
+- stable proxy/host routing
+- in-game operational visibility
+- public plugin API via `SFabricAPI`
 
-* build jars (For ServerFabric-Host use `./gradlew :serverfabrichost:shadowJar`)
-* copy ServerFabric-Host to host machines
-* install ServerFabric-Proxy in proxy `plugins/`
-* install ServerFabric-Client in Paper/Spigot `plugins/`
+The project is intentionally aiming for:
+- practical
+- stable
+- admin-friendly
+
+rather than trying to be a giant overcomplicated platform.
+
 ---
 
-## Roadmap Ideas
-* Auto-connect after "Play" (create/start/wait ready/send player)
-* Template metadata (`template.json`): plugins, copy rules
-* Live logs view in GUI (tail last N lines)
-* Host health + "HOST DOWN" status in GUI
-* Smarter host selection (least loaded / least instances / weighted)
+## Roadmap
+
+### Near-term
+- continue refining version-aware template creation
+- add more admin/build convenience commands
+- improve protocol/version discipline across components
+- expand SFabricAPI coverage
+- add API events
+
+### Later
+- richer template metadata
+- richer web interface
+- better host health/availability views
+- more advanced host selection and balancing
+- improved log viewing
+
 ---
 
 ## Credits / Inspiration
 
-Inspired by the SubServers ecosystem and the idea of “host-managed instances + proxy routing + in-game UX”.
+Inspired by the SubServers ecosystem and the idea of:
+- host-managed instances
+- proxy-based routing
+- in-game management UX
 
 ---
 
 ## License
+
 ```text
 Copyright 2026 JumpWatch/HypersMC
 
@@ -177,9 +478,4 @@ You may obtain a copy of the License at
 
     http://www.apache.org/licenses/LICENSE-2.0
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-```
+Unless required
