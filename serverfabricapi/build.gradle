@@ -1,5 +1,7 @@
 plugins {
     id "java-library"
+    id "maven-publish"
+
 }
 
 group = "dev.jumpwatch.serverfabric"
@@ -9,6 +11,8 @@ java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
     }
+    withSourcesJar()
+    withJavadocJar()
 }
 
 repositories {
@@ -20,4 +24,27 @@ repositories {
 
 dependencies {
     compileOnly "net.md-5:bungeecord-api:1.20-R0.1-SNAPSHOT"
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+
+            groupId = project.group
+            artifactId = "serverfabricapi"
+            version = project.version
+        }
+    }
+
+    repositories {
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/hypersmc/ServerFabric")
+            credentials {
+                username = project.findProperty("gpr.user") ?: System.getenv("GITHUB_ACTOR")
+                password = project.findProperty("gpr.key") ?: System.getenv("GITHUB_TOKEN")
+            }
+        }
+    }
 }
