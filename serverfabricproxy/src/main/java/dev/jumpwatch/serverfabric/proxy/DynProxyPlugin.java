@@ -143,12 +143,16 @@ public final class DynProxyPlugin extends Plugin {
         });
     }
 
+    @SuppressWarnings("unchecked")
     private void loadHostsFromConfig() {
         try {
             Configuration cfg = ConfigurationProvider.getProvider(YamlConfiguration.class)
                     .load(new File(getDataFolder(), "config.yml"));
 
-            String token = cfg.getString("token");
+            String token = cfg.getString("token", "");
+            String securitySignedKeyId = cfg.getString("securitySignedKeyId", "");
+            String securitySignedSecret = cfg.getString("securitySignedSecret", "");
+
             List<Map<String, Object>> list = (List<Map<String, Object>>) cfg.getList("hosts");
 
             if (list == null || list.isEmpty()) {
@@ -161,7 +165,13 @@ public final class DynProxyPlugin extends Plugin {
                 String baseUrl = String.valueOf(obj.get("baseUrl"));
                 String connectHost = String.valueOf(obj.get("connectHost"));
 
-                HostClient client = new HostClient(baseUrl, token);
+                HostClient client = new HostClient(
+                        baseUrl,
+                        token,
+                        securitySignedKeyId,
+                        securitySignedSecret
+                );
+
                 hosts.addHost(new HostRegistry.HostDef(id, baseUrl, connectHost, client));
             }
 

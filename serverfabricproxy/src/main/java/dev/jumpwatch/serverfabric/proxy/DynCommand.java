@@ -102,14 +102,12 @@ public final class DynCommand extends Command {
                     if (args.length < 2) { sender.sendMessage(ChatColor.RED + "Usage: /dyn start <name>"); return; }
                     String name = args[1];
                     host.start(name);
-                    sender.sendMessage(ChatColor.GREEN + "Starting " + name);
                     break;
                 }
                 case "stop": {
                     if (args.length < 2) { sender.sendMessage(ChatColor.RED + "Usage: /dyn stop <name>"); return; }
                     String name = args[1];
                     host.stop(name);
-                    sender.sendMessage(ChatColor.GREEN + "Stopping " + name);
                     break;
                 }
                 case "delete": {
@@ -117,7 +115,6 @@ public final class DynCommand extends Command {
                     String name = args[1];
                     host.delete(name);
                     plugin.unregisterServer(name);
-                    sender.sendMessage(ChatColor.GREEN + "Deleted " + name);
                     break;
                 }
                 case "list": {

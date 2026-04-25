@@ -17,7 +17,13 @@ public record HostConfig(
         int portMin,
         int portMax,
         String javaCmd,
-        List<String> jvmArgs
+        List<String> jvmArgs,
+        String securityTrustedCidrs,
+        String authMode,
+        String keyId,
+        String secret,
+        int skewSeconds,
+        int ttlSeconds
 ) {
     public static HostConfig load(Path file) throws IOException {
         Properties p = new Properties();
@@ -43,7 +49,19 @@ public record HostConfig(
                 .filter(s -> !s.isEmpty())
                 .toList();
 
-        return new HostConfig(bindHost, hostId, bindPort, token, rootPath, portMin, portMax, javaCmd, jvmArgs);
+        String securityTrustedCidrs = p.getProperty("securityTrustedCidrs", "127.0.0.1/32"); // TRUST nobody except ourselves for default value if securityTrustedCidrs isn't found...
+
+        String authMode = p.getProperty("securityAuthMode", "TOKEN_ONLY");
+
+        String keyId = p.getProperty("securitySignedKeyId", "proxy-main");
+
+        String secret = require(p, "securitySignedSecret");
+
+        int skewSeconds = Integer.parseInt(p.getProperty("securityClockSkewSeconds", "30"));
+
+        int ttlSeconds = Integer.parseInt(p.getProperty("securityNonceTtlSeconds", "300"));
+
+        return new HostConfig(bindHost, hostId, bindPort, token, rootPath, portMin, portMax, javaCmd, jvmArgs, securityTrustedCidrs, authMode, keyId, secret, skewSeconds, ttlSeconds);
     }
 
     private static String require(Properties p, String key) throws IOException {

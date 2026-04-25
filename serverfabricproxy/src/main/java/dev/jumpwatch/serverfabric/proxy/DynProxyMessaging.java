@@ -8,6 +8,7 @@ import net.md_5.bungee.event.EventHandler;
 
 import java.io.*;
 import java.util.*;
+import java.util.logging.Logger;
 
 public final class DynProxyMessaging implements Listener {
 
@@ -127,7 +128,7 @@ public final class DynProxyMessaging implements Listener {
                         if (h == null) { reply(server, playerUuid, false, "Unknown host for " + instance); return; }
 
                         h.client().start(instance);
-                        reply(server, playerUuid, true, "Starting " + instance);
+                        reply(server, playerUuid, true, "Started " + instance);
                     }
 
                     case "RESTART" -> {
@@ -152,7 +153,7 @@ public final class DynProxyMessaging implements Listener {
                         if (h == null) { reply(server, playerUuid, false, "Unknown host for " + instance); return; }
 
                         h.client().stop(instance);
-                        reply(server, playerUuid, true, "Stopping " + instance);
+                        reply(server, playerUuid, true, "Stopped " + instance);
                     }
 
                     case "DELETE" -> {
@@ -352,6 +353,13 @@ public final class DynProxyMessaging implements Listener {
                 server.getInfo().sendData(CHANNEL, buildStatsResponse(playerUuid, stats), false);
 
             } catch (Exception e) {
+                String msg = e.getMessage() == null ? "Unknown stats error." : e.getMessage();
+
+                if (msg.contains("not_running")) {
+                    reply(server, playerUuid, false, "Instance is offline. Live stats are unavailable.");
+                    return;
+                }
+
                 reply(server, playerUuid, false, "Stats error: " + e.getMessage());
             }
         });

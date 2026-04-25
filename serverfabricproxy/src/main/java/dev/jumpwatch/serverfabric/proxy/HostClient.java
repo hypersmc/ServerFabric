@@ -4,20 +4,25 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.*;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public final class HostClient {
     private final String baseUrl;
     private final String token;
     private final ObjectMapper om = new ObjectMapper()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-    public HostClient(String baseUrl, String token) {
-        this.baseUrl = baseUrl;
-        this.token = token;
+    private final String signedKeyId;
+    private final byte[] signedSecretBytes;
+
+    public HostClient(String baseUrl, String token, String signedKeyId, String signedSecret) {
+        this.baseUrl = stripTrailingSlash(baseUrl);
+        this.token = token == null ? "" : token;
+        this.signedKeyId = signedKeyId == null ? "" : signedKeyId.trim();
+        this.signedSecretBytes = signedSecret == null
+                ? new byte[0]
+                : signedSecret.getBytes(java.nio.charset.StandardCharsets.UTF_8);
     }
 
     public record CreateResponse(String name, int port) {}
@@ -50,37 +55,55 @@ public final class HostClient {
     }
 
     private String post(String path, String body) throws IOException {
-        URL url = new URL(baseUrl + path);
-        HttpURLConnection con = (HttpURLConnection) url.openConnection();
-        con.setRequestMethod("POST");
-        con.setRequestProperty("Content-Type", "application/json");
-        con.setRequestProperty("Authorization", "Bearer " + token);
-        con.setDoOutput(true);
+        String normalizedBody = body == null ? "" : body;
 
-        try (OutputStream os = con.getOutputStream()) {
-            os.write(body.getBytes(StandardCharsets.UTF_8));
+        try {
+            java.net.HttpURLConnection con =
+                    (java.net.HttpURLConnection) new java.net.URL(baseUrl + path).openConnection();
+            con.setRequestMethod("POST");
+            con.setDoOutput(true);
+            con.setConnectTimeout(10_000);
+            con.setReadTimeout(60_000);
+            con.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            con.setRequestProperty("Accept", "application/json");
+
+            // keep bearer during transition
+            if (token != null && !token.isBlank()) {
+                con.setRequestProperty("Authorization", "Bearer " + token);
+            }
+
+            try {
+                Map<String, String> signed = buildSignedHeaders("POST", path, normalizedBody);
+                for (Map.Entry<String, String> entry : signed.entrySet()) {
+                    con.setRequestProperty(entry.getKey(), entry.getValue());
+                }
+            } catch (Exception e) {
+                throw new IOException("Failed to build signed headers: " + e.getMessage(), e);
+            }
+
+            try (java.io.OutputStream os = con.getOutputStream()) {
+                os.write(normalizedBody.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+
+            int code = con.getResponseCode();
+            java.io.InputStream in = code >= 200 && code < 300 ? con.getInputStream() : con.getErrorStream();
+            String json = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+
+            if (code < 200 || code >= 300) {
+                throw hostError(code, json);
+            }
+
+            return json;
+        } catch (java.net.MalformedURLException e) {
+            throw new IOException("Bad URL for path " + path, e);
         }
-
-        int code = con.getResponseCode();
-        InputStream is = (code >= 200 && code < 300) ? con.getInputStream() : con.getErrorStream();
-        String resp = readAll(is);
-
-        if (code < 200 || code >= 300) throw new IOException("HTTP " + code + ": " + resp);
-        return resp;
     }
 
-    private static String readAll(InputStream is) throws IOException {
-        if (is == null) return "";
-        try (BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = br.readLine()) != null) sb.append(line);
-            return sb.toString();
-        }
+
+    private static String esc(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
-
-    private static String esc(String s) { return s.replace("\\", "\\\\").replace("\"", "\\\""); }
-
     private static String extract(String src, String left, String right) throws IOException {
         int a = src.indexOf(left);
         if (a < 0) throw new IOException("Bad response: " + src);
@@ -95,17 +118,42 @@ public final class HostClient {
     }
 
     private String get(String path) throws IOException {
-        URL url = new URL(baseUrl + path);
-        HttpURLConnection con = (HttpURLConnection) url.openConnection();
-        con.setRequestMethod("GET");
-        con.setRequestProperty("Authorization", "Bearer " + token);
+        String body = "";
 
-        int code = con.getResponseCode();
-        InputStream is = (code >= 200 && code < 300) ? con.getInputStream() : con.getErrorStream();
-        String resp = readAll(is);
+        try {
+            java.net.HttpURLConnection con =
+                    (java.net.HttpURLConnection) new java.net.URL(baseUrl + path).openConnection();
+            con.setRequestMethod("GET");
+            con.setConnectTimeout(10_000);
+            con.setReadTimeout(30_000);
+            con.setRequestProperty("Accept", "application/json");
 
-        if (code < 200 || code >= 300) throw new IOException("HTTP " + code + ": " + resp);
-        return resp;
+            // keep bearer during transition
+            if (token != null && !token.isBlank()) {
+                con.setRequestProperty("Authorization", "Bearer " + token);
+            }
+
+            try {
+                Map<String, String> signed = buildSignedHeaders("GET", path, body);
+                for (Map.Entry<String, String> entry : signed.entrySet()) {
+                    con.setRequestProperty(entry.getKey(), entry.getValue());
+                }
+            } catch (Exception e) {
+                throw new IOException("Failed to build signed headers: " + e.getMessage(), e);
+            }
+
+            int code = con.getResponseCode();
+            java.io.InputStream in = code >= 200 && code < 300 ? con.getInputStream() : con.getErrorStream();
+            String json = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+
+            if (code < 200 || code >= 300) {
+                throw hostError(code, json);
+            }
+
+            return json;
+        } catch (java.net.MalformedURLException e) {
+            throw new IOException("Bad URL for path " + path, e);
+        }
     }
 
     public StatusResponse status() throws IOException {
@@ -244,4 +292,78 @@ public final class HostClient {
         String json = post("/server/stats", body);
         return om.readValue(json, InstanceStatsResponse.class);
     }
+
+    public static final class ApiErrorResponse {
+        public boolean ok;
+        public String error;
+        public String message;
+        public String requestId;
+    }
+    private IOException hostError(int code, String json){
+        try {
+            ApiErrorResponse err = om.readValue(json, ApiErrorResponse.class);
+            String error = err.error == null ? "unknown_error" : err.error;
+            String message = err.message == null ? "Unknown error." : err.message;
+            return new IOException("HOST_API " + code + " " + error + ": " + message);
+        } catch (Exception ignored){
+            return new IOException("HTTP " + code + ": " + json);
+        }
+    }
+
+    private Map<String, String> buildSignedHeaders(String method, String path, String body) throws Exception {
+        if (!isSigningConfigured()) {
+            return java.util.Collections.emptyMap();
+        }
+
+        String normalizedMethod = method == null ? "GET" : method.trim().toUpperCase(java.util.Locale.ROOT);
+        String normalizedPath = path == null ? "/" : path;
+        String normalizedBody = body == null ? "" : body;
+
+        String timestamp = String.valueOf(java.time.Instant.now().getEpochSecond());
+        String nonce = java.util.UUID.randomUUID().toString();
+        String bodySha256 = sha256Hex(normalizedBody);
+
+        String canonical = normalizedMethod
+                + "\n" + normalizedPath
+                + "\n" + timestamp
+                + "\n" + nonce
+                + "\n" + bodySha256;
+
+        String signature = hmacSha256Hex(signedSecretBytes, canonical);
+
+        Map<String, String> headers = new java.util.LinkedHashMap<>();
+        headers.put("X-SFabric-KeyId", signedKeyId);
+        headers.put("X-SFabric-Timestamp", timestamp);
+        headers.put("X-SFabric-Nonce", nonce);
+        headers.put("X-SFabric-Body-SHA256", bodySha256);
+        headers.put("X-SFabric-Signature", signature);
+        return headers;
+    }
+
+    private static String sha256Hex(String text) {
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] out = digest.digest(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(out);
+        } catch (Exception e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
+    }
+
+    private static String hmacSha256Hex(byte[] secret, String canonical) throws Exception {
+        javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+        mac.init(new javax.crypto.spec.SecretKeySpec(secret, "HmacSHA256"));
+        byte[] out = mac.doFinal(canonical.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return java.util.HexFormat.of().formatHex(out);
+    }
+
+    private static String stripTrailingSlash(String s) {
+        if (s == null || s.isBlank()) return "";
+        return s.endsWith("/") ? s.substring(0, s.length() - 1) : s;
+    }
+
+    private boolean isSigningConfigured() {
+        return !signedKeyId.isBlank() && signedSecretBytes.length > 0;
+    }
+
 }

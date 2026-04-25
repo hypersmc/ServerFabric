@@ -2,6 +2,8 @@ token: "CHANGE_ME_TOKEN"
 
 pollIntervalSeconds: 5
 
+securitySignedKeyId: "proxy-main"
+securitySignedSecret: "CHANGE_ME_TO_A_LONG_RANDOM_SECRET"
 
 hosts:
   - id: "node1"

@@ -44,7 +44,7 @@ public final class ServerFabricHostMain {
                 new LinkedBlockingQueue<>(500)
         ));
 
-        HostHttpApi api = new HostHttpApi(cfg.token(), mgr);
+        HostHttpApi api = new HostHttpApi(cfg.token(), mgr, cfg);
         api.register(server);
         server.start();
 
@@ -104,15 +104,65 @@ public final class ServerFabricHostMain {
 
         List<String> lines = List.of(
                 "# ServerFabric Host default config",
+                "",
+                "# Shared token used by the proxy/client-side controller when bearer auth is enabled.",
+                "# Change this before using the host in a real environment.",
                 "token=CHANGE_ME_TOKEN",
+                "",
+                "# Logical host identifier used by the proxy.",
                 "hostId=local",
+                "",
+                "# HTTP bind address and port for the host API.",
+                "# Bind to localhost, LAN, or VPN where possible. Avoid public exposure.",
                 "bindHost=0.0.0.0",
                 "bindPort=8085",
+                "",
+                "# Root folder where ServerFabric stores templates, instances, logs, build-cache, and tools-cache.",
                 "rootPath=dyn/root",
+                "",
+                "# Java command used to RUN managed instances.",
+                "# Build-time Java is handled separately through the internal managed JDK cache.",
                 "javaCmd=java",
+                "",
+                "# Port range used for created instances.",
                 "portMin=25566",
                 "portMax=25666",
-                "jvmArgs=-Xms1G -Xmx2G"
+                "",
+                "# Default JVM arguments for created instances.",
+                "jvmArgs=-Xms1G -Xmx2G",
+                "",
+                "# ----------------------------------------------------------------------",
+                "# Security",
+                "# ----------------------------------------------------------------------",
+                "",
+                "# Comma-separated list of trusted IPs/CIDRs.",
+                "# Trusted IPs still require valid auth, but bypass temporary bans and rate limits.",
+                "# Example values:",
+                "#   127.0.0.1/32",
+                "#   172.20.0.0/16",
+                "#   10.0.0.0/8",
+                "securityTrustedCidrs=127.0.0.1/32,172.20.0.0/16,10.0.0.0/8",
+                "",
+                "# Authentication mode:",
+                "#   TOKEN_ONLY       = only Bearer token auth is accepted",
+                "#   TOKEN_OR_SIGNED  = signed requests are preferred, bearer token still works",
+                "#   SIGNED_ONLY      = only signed requests are accepted",
+                "securityAuthMode=TOKEN_OR_SIGNED",
+                "",
+                "# Signed request settings (used for TOKEN_OR_SIGNED and SIGNED_ONLY).",
+                "# keyId identifies which shared secret the proxy is using.",
+                "securitySignedKeyId=proxy-main",
+                "",
+                "# Shared HMAC secret used to sign requests.",
+                "# Replace this with a long random secret before production use.",
+                "# Recommended: 32 to 64+ random bytes, stored as a long random string.",
+                "securitySignedSecret=CHANGE_ME_TO_A_LONG_RANDOM_SECRET",
+                "",
+                "# Maximum allowed clock drift in seconds for signed requests.",
+                "securityClockSkewSeconds=30",
+                "",
+                "# How long used nonces are remembered to prevent replay attacks.",
+                "securityNonceTtlSeconds=300"
         );
 
         Files.write(configPath, lines, StandardOpenOption.CREATE_NEW);
